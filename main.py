@@ -1,9 +1,10 @@
 import os
 import asyncio
-from playwright.async_api import async_playwright
+from datetime import datetime
+
 import requests
 from dotenv import load_dotenv
-from datetime import datetime
+from playwright.async_api import async_playwright
 
 load_dotenv()
 
@@ -19,6 +20,7 @@ sent_links = set()
 
 
 def log(text):
+
     now = datetime.now().strftime("%H:%M:%S")
 
     message = f"[{now}] {text}"
@@ -26,6 +28,7 @@ def log(text):
     print(message)
 
     try:
+
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={
@@ -34,162 +37,233 @@ def log(text):
             },
             timeout=10
         )
+
     except Exception as e:
+
         print("Telegram error:", e)
 
 
 async def login(page):
 
-    log("🌐 Открываю сайт...")
+    try:
 
-    await page.goto(
-        "https://www.campusgroningen.com",
-        wait_until="domcontentloaded"
-    )
+        log("🌐 Открываю сайт...")
 
-    await page.wait_for_timeout(3000)
+        await page.goto(
+            "https://www.campusgroningen.com",
+            wait_until="domcontentloaded",
+            timeout=60000
+        )
 
-    if "mijncampus" in page.url.lower():
+        await page.wait_for_timeout(5000)
 
-        log("✅ Уже авторизован")
+        # Уже авторизован
+        if "mijncampus" in page.url.lower():
 
-        return
+            log("✅ Уже авторизован")
 
-    log("🔐 Авторизация...")
+            return
 
-    await page.click("text=Inloggen")
+        log("🔐 Начинаю авторизацию...")
 
-    await page.wait_for_timeout(2000)
+        await page.click("text=Inloggen", timeout=10000)
 
-    await page.fill('input[type="email"]', EMAIL)
+        await page.wait_for_timeout(3000)
 
-    log("📧 Email введен")
+        log("📧 Ввожу email...")
 
-    await page.fill('input[type="password"]', PASSWORD)
+        await page.fill(
+            'input[type="email"]',
+            EMAIL
+        )
 
-    log("🔑 Пароль введен")
+        log("🔑 Ввожу пароль...")
 
-    await page.click('button[type="submit"]')
+        await page.fill(
+            'input[type="password"]',
+            PASSWORD
+        )
 
-    log("🚀 Отправляю форму логина...")
+        log("🚀 Отправляю форму входа...")
 
-    await page.wait_for_timeout(7000)
+        await page.click(
+            'button[type="submit"]'
+        )
 
-    if "mijncampus" in page.url.lower():
+        await page.wait_for_timeout(8000)
 
-        log("✅ Успешный вход")
+        if "mijncampus" in page.url.lower():
 
-    else:
+            log("✅ Авторизация успешна")
 
-        log("❌ Не удалось войти")
+        else:
+
+            log("⚠️ Возможно логин не удался")
+
+    except Exception as e:
+
+        log(f"❌ Ошибка логина: {e}")
 
 
 async def check_apartments(page):
 
     global sent_links
 
-    log("🏠 Переход в избранные объявления...")
+    try:
 
-    await page.goto(
-        "https://www.campusgroningen.com/mijn-favorieten",
-        wait_until="domcontentloaded"
-    )
+        log("🏠 Открываю избранные объявления...")
 
-    await page.wait_for_timeout(5000)
+        await page.goto(
+            "https://www.campusgroningen.com/mijn-favorieten",
+            wait_until="domcontentloaded",
+            timeout=60000
+        )
 
-    listings = await page.locator("article").all()
+        await page.wait_for_timeout(5000)
 
-    log(f"📋 Найдено объявлений: {len(listings)}")
+        listings = await page.locator("article").all()
 
-    found_any = False
+        log(f"📋 Найдено объявлений: {len(listings)}")
 
-    for index, item in enumerate(listings, start=1):
+        found_any = False
 
-        try:
+        for index, item in enumerate(listings, start=1):
 
-            log(f"🔍 Проверяю объявление #{index}")
+            try:
 
-            text = await item.inner_text()
+                log(f"🔍 Проверяю объявление #{index}")
 
-            has_join_button = (
-                "deelnemen" in text.lower()
-                or "participate" in text.lower()
-                or "join" in text.lower()
-            )
+                text = await item.inner_text()
 
-            if has_join_button:
+                text_lower = text.lower()
 
-                found_any = True
+                has_join_button = (
+                    "deelnemen" in text_lower
+                    or "participate" in text_lower
+                    or "join" in text_lower
+                    or "inschrijven" in text_lower
+                )
 
-                log("🎉 Найдена кнопка участия!")
+                if has_join_button:
 
-                link = await item.locator("a").first.get_attribute("href")
+                    found_any = True
 
-                if not link:
-                    continue
+                    log("🎉 Найдена запись на просмотр!")
 
-                full_link = f"https://www.campusgroningen.com{link}"
+                    link = await item.locator("a").first.get_attribute("href")
 
-                if full_link not in sent_links:
+                    if not link:
 
-                    sent_links.add(full_link)
+                        log("⚠️ Ссылка не найдена")
 
-                    log(
-                        f"🏠 Есть запись на просмотр!\n\n{full_link}"
-                    )
+                        continue
+
+                    if link.startswith("http"):
+
+                        full_link = link
+
+                    else:
+
+                        full_link = f"https://www.campusgroningen.com{link}"
+
+                    title = "Неизвестное объявление"
+
+                    try:
+
+                        title = await item.locator("h1, h2, h3").first.inner_text()
+
+                    except:
+                        pass
+
+                    if full_link not in sent_links:
+
+                        sent_links.add(full_link)
+
+                        log(
+                            f"🏠 ДОСТУПНА ЗАПИСЬ НА ПРОСМОТР\n\n"
+                            f"📌 {title}\n\n"
+                            f"🔗 {full_link}"
+                        )
+
+                    else:
+
+                        log("ℹ️ Уже отправлялось ранее")
 
                 else:
 
-                    log("ℹ️ Уже отправлялось ранее")
+                    log("❌ Записи нет")
 
-            else:
+            except Exception as e:
 
-                log("❌ Кнопка участия не найдена")
+                log(f"⚠️ Ошибка проверки объявления: {e}")
 
-        except Exception as e:
+        if not found_any:
 
-            log(f"⚠️ Ошибка проверки объявления: {e}")
+            log("😴 Свободных записей пока нет")
 
-    if not found_any:
+    except Exception as e:
 
-        log("😴 Свободных записей пока нет")
+        log(f"❌ Ошибка страницы избранного: {e}")
 
 
 async def main():
 
     log("🚀 Бот запущен")
 
-    async with async_playwright() as p:
+    while True:
 
-        log("🌐 Запуск браузера...")
+        try:
 
-        browser = await p.chromium.launch(
-            headless=True
-        )
+            async with async_playwright() as p:
 
-        context = await browser.new_context()
+                log("🌐 Запуск браузера...")
 
-        page = await context.new_page()
-
-        while True:
-
-            try:
-
-                log("🔄 Начинаю новый цикл проверки")
-
-                await login(page)
-
-                await check_apartments(page)
-
-                log(
-                    f"⏳ Жду {CHECK_INTERVAL} секунд до следующей проверки"
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled",
+                        "--disable-setuid-sandbox",
+                        "--disable-gpu",
+                        "--no-zygote",
+                        "--single-process"
+                    ]
                 )
 
-            except Exception as e:
+                context = await browser.new_context()
 
-                log(f"🔥 Глобальная ошибка: {e}")
+                page = await context.new_page()
 
-            await asyncio.sleep(CHECK_INTERVAL)
+                log("✅ Браузер успешно запущен")
+
+                while True:
+
+                    try:
+
+                        log("🔄 Новый цикл проверки")
+
+                        await login(page)
+
+                        await check_apartments(page)
+
+                        log(
+                            f"⏳ Ожидание {CHECK_INTERVAL} секунд..."
+                        )
+
+                    except Exception as e:
+
+                        log(f"⚠️ Ошибка цикла: {e}")
+
+                    await asyncio.sleep(CHECK_INTERVAL)
+
+        except Exception as e:
+
+            log(f"🔥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
+
+            log("♻️ Перезапуск через 30 секунд...")
+
+            await asyncio.sleep(30)
 
 
 asyncio.run(main())
