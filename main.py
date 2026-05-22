@@ -186,32 +186,36 @@ async def check_apartments(page):
         await page.wait_for_timeout(5000)
 
         # ==========================================
-        # ИЩЕМ КАРТОЧКИ КВАРТИР ЧЕРЕЗ Woning
+        # ИЩЕМ КАРТОЧКИ КВАРТИР
         # ==========================================
 
         apartment_links = []
         processed_urls = set()
 
-        blocks = page.locator('text=Woning')
+        cards = page.locator(".row")
 
-        blocks_count = await blocks.count()
+        cards_count = await cards.count()
 
-        log(
-            f"🏠 Найдено блоков Woning: {blocks_count}"
-        )
+        log(f"📦 Всего row блоков: {cards_count}")
 
-        for i in range(blocks_count):
+        for i in range(cards_count):
 
             try:
 
-                block = blocks.nth(i)
+                card = cards.nth(i)
 
-                # Берем родителя
-                container = block.locator(
-                    "xpath=.."
-                )
+                card_text = (
+                    await card.inner_text()
+                ).lower()
 
-                links = container.locator("a")
+                # Только реальные карточки квартир
+                if (
+                    "huurprijs" not in card_text
+                    or "toegevoegd op" not in card_text
+                ):
+                    continue
+
+                links = card.locator("a")
 
                 links_count = await links.count()
 
@@ -240,20 +244,26 @@ async def check_apartments(page):
 
                         text_lower = text.lower()
 
-                        # игнор мусора
+                        # Пропускаем мусор
                         if (
                             "favoriet" in text_lower
                             or "verwijderen" in text_lower
                             or "facebook" in text_lower
                             or "instagram" in text_lower
                             or "linkedin" in text_lower
-                            or len(text) < 4
+                        ):
+                            continue
+
+                        # Только ссылки квартир
+                        if (
+                            "/aanbod/" not in href
+                            and "/woning/" not in href
                         ):
                             continue
 
                         apartment_title = text
 
-                        # собираем URL
+                        # Собираем полный URL
                         if href.startswith("/"):
 
                             apartment_url = (
@@ -261,14 +271,11 @@ async def check_apartments(page):
                                 + href
                             )
 
-                        elif href.startswith(
-                            "https://www.campusgroningen.com"
-                        ):
+                        else:
 
                             apartment_url = href
 
-                        if apartment_url:
-                            break
+                        break
 
                     except:
                         pass
@@ -276,13 +283,11 @@ async def check_apartments(page):
                 if not apartment_url:
                     continue
 
-                # убираем дубли
+                # Убираем дубли
                 if apartment_url in processed_urls:
                     continue
 
-                processed_urls.add(
-                    apartment_url
-                )
+                processed_urls.add(apartment_url)
 
                 apartment_links.append({
 
@@ -294,7 +299,7 @@ async def check_apartments(page):
             except Exception as e:
 
                 log(
-                    f"⚠️ Ошибка блока Woning: {e}"
+                    f"⚠️ Ошибка карточки: {e}"
                 )
 
         log(
@@ -322,6 +327,8 @@ async def check_apartments(page):
                 )
 
                 log(f"🏠 {title}")
+
+                log(f"🔗 {apartment_url}")
 
                 await page.goto(
                     apartment_url,
@@ -445,10 +452,9 @@ async def check_apartments(page):
             pass
 
         log(
-            f"❌ Ошибка страницы "
-            f"избранного: {e}"
+            f"❌ Ошибка страницы избранного: {e}"
         )
-
+        
 async def main():
 
     log("🚀 Бот запущен")
