@@ -188,16 +188,14 @@ async def check_apartments(page):
 
         await page.wait_for_timeout(5000)
 
-        # Ищем карточки объявлений
+        # Берем только реальные карточки квартир
         listings = await page.locator(
-            ".property-list, .row, .col-md-12"
+            'div:has-text("Woning")'
         ).all()
 
-        log(f"📋 Найдено блоков: {len(listings)}")
+        valid_listings = []
 
-        found_any = False
-
-        for index, item in enumerate(listings, start=1):
+        for item in listings:
 
             try:
 
@@ -205,29 +203,66 @@ async def check_apartments(page):
 
                 text_lower = text.lower()
 
-                # Пропускаем пустые
-                if len(text.strip()) < 20:
-                    continue
+                # Настоящая карточка квартиры
+                if (
+                    "woning" in text_lower
+                    and "huurprijs" in text_lower
+                ):
+
+                    valid_listings.append(item)
+
+            except:
+                pass
+
+        log(
+            f"📋 Найдено объявлений: {len(valid_listings)}"
+        )
+
+        found_any = False
+
+        for index, item in enumerate(valid_listings, start=1):
+
+            try:
+
+                text = await item.inner_text()
+
+                text_lower = text.lower()
 
                 log(f"🔍 Проверяю объявление #{index}")
 
-                # Название
+                # Название квартиры
                 title = "Неизвестное объявление"
 
                 try:
 
                     title_locator = item.locator("a")
 
-                    if await title_locator.count() > 0:
+                    count = await title_locator.count()
 
-                        title = await title_locator.first.inner_text()
+                    if count > 0:
+
+                        for i in range(count):
+
+                            temp = title_locator.nth(i)
+
+                            temp_text = (
+                                await temp.inner_text()
+                            ).strip()
+
+                            if (
+                                len(temp_text) > 3
+                                and "favoriet" not in temp_text.lower()
+                            ):
+
+                                title = temp_text
+                                break
 
                 except:
                     pass
 
                 log(f"🏠 {title}")
 
-                # Проверяем наличие записи
+                # Ищем запись на просмотр
                 has_join_button = (
                     "deelnemen" in text_lower
                     or "inschrijven" in text_lower
@@ -243,35 +278,40 @@ async def check_apartments(page):
 
                     log("🎉 Найдена возможность записи!")
 
-                    link = None
+                    link = (
+                        "https://www.campusgroningen.com/dashboard/mijn-favorieten"
+                    )
 
                     try:
 
-                        href = await item.locator(
-                            "a"
-                        ).first.get_attribute("href")
+                        all_links = item.locator("a")
 
-                        if href:
+                        count = await all_links.count()
 
-                            if href.startswith("http"):
+                        for i in range(count):
 
-                                link = href
+                            href = await all_links.nth(i).get_attribute("href")
 
-                            else:
+                            if (
+                                href
+                                and "/aanbod/" in href
+                            ):
 
-                                link = (
-                                    "https://www.campusgroningen.com"
-                                    + href
-                                )
+                                if href.startswith("http"):
+
+                                    link = href
+
+                                else:
+
+                                    link = (
+                                        "https://www.campusgroningen.com"
+                                        + href
+                                    )
+
+                                break
 
                     except:
                         pass
-
-                    if not link:
-
-                        link = (
-                            "https://www.campusgroningen.com/dashboard/mijn-favorieten"
-                        )
 
                     if link not in sent_links:
 
