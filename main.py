@@ -51,7 +51,7 @@ async def login(page):
 
         await page.goto(
             "https://www.campusgroningen.com",
-            wait_until="domcontentloaded",
+            wait_until="networkidle",
             timeout=60000
         )
 
@@ -59,7 +59,6 @@ async def login(page):
 
         current_url = page.url.lower()
 
-        # Уже залогинен
         if (
             "mijncampus" in current_url
             or "favorieten" in current_url
@@ -69,45 +68,59 @@ async def login(page):
 
             return True
 
-        log("🔐 Начинаю авторизацию...")
+        # cookies
+        try:
 
-        # Кнопка логина
+            cookie_btn = page.locator(
+                'button:has-text("Accept")'
+            )
+
+            if await cookie_btn.count() > 0:
+
+                log("🍪 Принимаю cookies")
+
+                await cookie_btn.click(
+                    force=True
+                )
+
+                await page.wait_for_timeout(2000)
+
+        except:
+            pass
+
+        log("🔐 Открываю окно логина...")
+
         await page.click(
             "text=Inloggen",
             force=True,
             timeout=30000
         )
 
-        await page.wait_for_timeout(4000)
+        await page.wait_for_timeout(5000)
 
         log("📧 Ввожу email...")
 
-        await page.fill(
-            'input[type="email"]',
-            EMAIL
-        )
+        email_input = page.locator(
+            'input[type="email"]'
+        ).first
+
+        await email_input.fill(EMAIL)
 
         log("🔑 Ввожу пароль...")
 
-        await page.fill(
-            'input[type="password"]',
-            PASSWORD
-        )
-
-        await page.wait_for_timeout(1000)
-
-        log("🚀 Отправляю форму входа...")
-
-        submit_button = page.locator(
-            'button[type="submit"]'
+        password_input = page.locator(
+            'input[type="password"]'
         ).first
 
-        await submit_button.click(
-            force=True,
-            timeout=30000
-        )
+        await password_input.fill(PASSWORD)
 
-        await page.wait_for_timeout(10000)
+        await page.wait_for_timeout(2000)
+
+        log("⌨️ Нажимаю ENTER...")
+
+        await password_input.press("Enter")
+
+        await page.wait_for_timeout(15000)
 
         current_url = page.url.lower()
 
@@ -115,12 +128,18 @@ async def login(page):
             await page.content()
         ).lower()
 
-        if (
+        log(f"🌍 URL после логина: {current_url}")
+
+        # Проверяем успешный вход
+        success = (
             "uitloggen" in page_text
             or "mijn favorieten" in page_text
+            or "logout" in page_text
             or "mijncampus" in current_url
             or "favorieten" in current_url
-        ):
+        )
+
+        if success:
 
             log("✅ Авторизация успешна")
 
@@ -128,11 +147,22 @@ async def login(page):
 
         else:
 
-            log("⚠️ Не удалось подтвердить логин")
+            log("❌ Логин не прошел")
 
             await page.screenshot(
-                path="login_failed.png"
+                path="login_failed.png",
+                full_page=True
             )
+
+            html = await page.content()
+
+            with open(
+                "login_failed.html",
+                "w",
+                encoding="utf-8"
+            ) as f:
+
+                f.write(html)
 
             return False
 
@@ -141,7 +171,8 @@ async def login(page):
         try:
 
             await page.screenshot(
-                path="login_error.png"
+                path="login_error.png",
+                full_page=True
             )
 
         except:
@@ -150,7 +181,6 @@ async def login(page):
         log(f"❌ Ошибка логина: {e}")
 
         return False
-
 
 async def check_apartments(page):
 
