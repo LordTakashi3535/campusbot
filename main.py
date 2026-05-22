@@ -186,111 +186,116 @@ async def check_apartments(page):
         await page.wait_for_timeout(5000)
 
         # ==========================================
-        # ИЩЕМ ССЫЛКИ НА КВАРТИРЫ
+        # ИЩЕМ КАРТОЧКИ КВАРТИР ЧЕРЕЗ Woning
         # ==========================================
 
         apartment_links = []
+        processed_urls = set()
 
-        all_links = page.locator("a")
+        blocks = page.locator('text=Woning')
 
-        links_count = await all_links.count()
+        blocks_count = await blocks.count()
 
         log(
-            f"🔗 Всего ссылок на странице: {links_count}"
+            f"🏠 Найдено блоков Woning: {blocks_count}"
         )
 
-        for i in range(links_count):
+        for i in range(blocks_count):
 
             try:
 
-                link = all_links.nth(i)
+                block = blocks.nth(i)
 
-                href = await link.get_attribute("href")
+                # Берем родителя
+                container = block.locator(
+                    "xpath=.."
+                )
 
-                text = (
-                    await link.inner_text()
-                ).strip()
+                links = container.locator("a")
 
-                if not href:
+                links_count = await links.count()
+
+                apartment_url = None
+                apartment_title = None
+
+                for j in range(links_count):
+
+                    try:
+
+                        link = links.nth(j)
+
+                        text = (
+                            await link.inner_text()
+                        ).strip()
+
+                        href = await link.get_attribute(
+                            "href"
+                        )
+
+                        if not href:
+                            continue
+
+                        if not text:
+                            continue
+
+                        text_lower = text.lower()
+
+                        # игнор мусора
+                        if (
+                            "favoriet" in text_lower
+                            or "verwijderen" in text_lower
+                            or "facebook" in text_lower
+                            or "instagram" in text_lower
+                            or "linkedin" in text_lower
+                            or len(text) < 4
+                        ):
+                            continue
+
+                        apartment_title = text
+
+                        # собираем URL
+                        if href.startswith("/"):
+
+                            apartment_url = (
+                                "https://www.campusgroningen.com"
+                                + href
+                            )
+
+                        elif href.startswith(
+                            "https://www.campusgroningen.com"
+                        ):
+
+                            apartment_url = href
+
+                        if apartment_url:
+                            break
+
+                    except:
+                        pass
+
+                if not apartment_url:
                     continue
 
-                if not text:
+                # убираем дубли
+                if apartment_url in processed_urls:
                     continue
 
-                # короткий мусор
-                if len(text) < 5:
-                    continue
-
-                blocked_words = [
-
-                    "favoriet",
-                    "home",
-                    "facebook",
-                    "instagram",
-                    "linkedin",
-                    "huurprijs",
-                    "woning",
-                    "toegevoegd",
-                    "overview",
-                    "profiel"
-
-                ]
-
-                skip = False
-
-                for word in blocked_words:
-
-                    if word in text.lower():
-
-                        skip = True
-                        break
-
-                if skip:
-                    continue
-
-                # собираем ссылку
-                if href.startswith("/"):
-
-                    full_link = (
-                        "https://www.campusgroningen.com"
-                        + href
-                    )
-
-                elif href.startswith(
-                    "https://www.campusgroningen.com"
-                ):
-
-                    full_link = href
-
-                else:
-                    continue
-
-                # dashboard не нужен
-                if "/dashboard/" in full_link:
-                    continue
-
-                # уже добавлено
-                already_exists = False
-
-                for item in apartment_links:
-
-                    if item["url"] == full_link:
-
-                        already_exists = True
-                        break
-
-                if already_exists:
-                    continue
+                processed_urls.add(
+                    apartment_url
+                )
 
                 apartment_links.append({
 
-                    "title": text,
-                    "url": full_link
+                    "title": apartment_title,
+                    "url": apartment_url
 
                 })
 
-            except:
-                pass
+            except Exception as e:
+
+                log(
+                    f"⚠️ Ошибка блока Woning: {e}"
+                )
 
         log(
             f"✅ Найдено объявлений: {len(apartment_links)}"
@@ -302,7 +307,10 @@ async def check_apartments(page):
 
         found_any = False
 
-        for index, apartment in enumerate(apartment_links, start=1):
+        for index, apartment in enumerate(
+            apartment_links,
+            start=1
+        ):
 
             try:
 
@@ -346,20 +354,27 @@ async def check_apartments(page):
 
                     try:
 
-                        locator = page.locator(selector)
+                        locator = page.locator(
+                            selector
+                        )
 
-                        count = await locator.count()
+                        count = (
+                            await locator.count()
+                        )
 
                         if count > 0:
 
-                            visible = await locator.first.is_visible()
+                            visible = await (
+                                locator.first
+                                .is_visible()
+                            )
 
                             if visible:
 
                                 has_join_button = True
 
                                 log(
-                                    f"✅ Найдена кнопка записи"
+                                    "✅ Найдена кнопка записи"
                                 )
 
                                 break
@@ -375,9 +390,14 @@ async def check_apartments(page):
 
                     found_any = True
 
-                    if apartment_url not in sent_links:
+                    if (
+                        apartment_url
+                        not in sent_links
+                    ):
 
-                        sent_links.add(apartment_url)
+                        sent_links.add(
+                            apartment_url
+                        )
 
                         log(
                             f"🚨 ДОСТУПНА ЗАПИСЬ НА ПРОСМОТР!\n\n"
@@ -402,12 +422,15 @@ async def check_apartments(page):
                 )
 
         log(
-            f"✅ Проверено объявлений: {len(apartment_links)}"
+            f"✅ Проверено объявлений: "
+            f"{len(apartment_links)}"
         )
 
         if not found_any:
 
-            log("😴 Свободных записей пока нет")
+            log(
+                "😴 Свободных записей пока нет"
+            )
 
     except Exception as e:
 
@@ -422,9 +445,9 @@ async def check_apartments(page):
             pass
 
         log(
-            f"❌ Ошибка страницы избранного: {e}"
+            f"❌ Ошибка страницы "
+            f"избранного: {e}"
         )
-
 
 async def main():
 
