@@ -181,16 +181,19 @@ async def check_apartments(page):
         log("🏠 Открываю избранные объявления...")
 
         await page.goto(
-            "https://www.campusgroningen.com/mijn-favorieten",
+            "https://www.campusgroningen.com/dashboard/mijn-favorieten",
             wait_until="domcontentloaded",
             timeout=60000
         )
 
         await page.wait_for_timeout(5000)
 
-        listings = await page.locator("article").all()
+        # Ищем карточки объявлений
+        listings = await page.locator(
+            ".property-list, .row, .col-md-12"
+        ).all()
 
-        log(f"📋 Найдено объявлений: {len(listings)}")
+        log(f"📋 Найдено блоков: {len(listings)}")
 
         found_any = False
 
@@ -198,69 +201,91 @@ async def check_apartments(page):
 
             try:
 
-                log(f"🔍 Проверяю объявление #{index}")
-
                 text = await item.inner_text()
 
                 text_lower = text.lower()
 
+                # Пропускаем пустые
+                if len(text.strip()) < 20:
+                    continue
+
+                log(f"🔍 Проверяю объявление #{index}")
+
+                # Название
+                title = "Неизвестное объявление"
+
+                try:
+
+                    title_locator = item.locator("a")
+
+                    if await title_locator.count() > 0:
+
+                        title = await title_locator.first.inner_text()
+
+                except:
+                    pass
+
+                log(f"🏠 {title}")
+
+                # Проверяем наличие записи
                 has_join_button = (
                     "deelnemen" in text_lower
+                    or "inschrijven" in text_lower
+                    or "bezichtiging" in text_lower
+                    or "viewing" in text_lower
                     or "participate" in text_lower
                     or "join" in text_lower
-                    or "inschrijven" in text_lower
                 )
 
                 if has_join_button:
 
                     found_any = True
 
-                    log("🎉 Найдена запись на просмотр!")
+                    log("🎉 Найдена возможность записи!")
 
-                    link = await item.locator(
-                        "a"
-                    ).first.get_attribute("href")
-
-                    if not link:
-
-                        log("⚠️ Ссылка не найдена")
-
-                        continue
-
-                    if link.startswith("http"):
-
-                        full_link = link
-
-                    else:
-
-                        full_link = (
-                            f"https://www.campusgroningen.com{link}"
-                        )
-
-                    title = "Неизвестное объявление"
+                    link = None
 
                     try:
 
-                        title = await item.locator(
-                            "h1, h2, h3"
-                        ).first.inner_text()
+                        href = await item.locator(
+                            "a"
+                        ).first.get_attribute("href")
+
+                        if href:
+
+                            if href.startswith("http"):
+
+                                link = href
+
+                            else:
+
+                                link = (
+                                    "https://www.campusgroningen.com"
+                                    + href
+                                )
 
                     except:
                         pass
 
-                    if full_link not in sent_links:
+                    if not link:
 
-                        sent_links.add(full_link)
+                        link = (
+                            "https://www.campusgroningen.com/dashboard/mijn-favorieten"
+                        )
+
+                    if link not in sent_links:
+
+                        sent_links.add(link)
 
                         log(
-                            f"🏠 ДОСТУПНА ЗАПИСЬ НА ПРОСМОТР\n\n"
-                            f"📌 {title}\n\n"
-                            f"🔗 {full_link}"
+                            f"🚨 ДОСТУПНА ЗАПИСЬ НА ПРОСМОТР!\n\n"
+                            f"🏠 {title}\n\n"
+                            f"🔗 {link}"
                         )
 
                     else:
 
-                        log("ℹ️ Уже отправлялось ранее")
+                        log("ℹ️ Уже отправлялось")
 
                 else:
 
@@ -281,7 +306,8 @@ async def check_apartments(page):
         try:
 
             await page.screenshot(
-                path="favorites_error.png"
+                path="favorites_error.png",
+                full_page=True
             )
 
         except:
@@ -290,7 +316,6 @@ async def check_apartments(page):
         log(
             f"❌ Ошибка страницы избранного: {e}"
         )
-
 
 async def main():
 
