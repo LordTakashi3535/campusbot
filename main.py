@@ -185,81 +185,151 @@ async def check_apartments(page):
 
         await page.wait_for_timeout(5000)
 
+        # =========================
+        # ИЩЕМ КАРТОЧКИ КВАРТИР
+        # =========================
+
+        cards = page.locator(
+            '.col-md-8 > .row'
+        )
+
+        cards_count = await cards.count()
+
+        log(f"📋 Найдено блоков: {cards_count}")
+
         apartment_links = []
+        processed_addresses = set()
 
-        # Берем все ссылки
-        all_links = page.locator("a")
-
-        links_count = await all_links.count()
-
-        for i in range(links_count):
+        for i in range(cards_count):
 
             try:
 
-                href = await all_links.nth(i).get_attribute("href")
+                card = cards.nth(i)
 
-                text = (
-                    await all_links.nth(i).inner_text()
-                ).strip()
+                text = await card.inner_text()
 
-                if not href:
-                    continue
+                text_lower = text.lower()
 
-                # пропускаем мусор
+                # Только реальные квартиры
                 if (
-                    "facebook" in href.lower()
-                    or "instagram" in href.lower()
-                    or "linkedin" in href.lower()
-                    or "twitter" in href.lower()
-                    or text.lower() == "home"
+                    "woning" not in text_lower
+                    or "huurprijs" not in text_lower
                 ):
                     continue
 
-                # только внутренние ссылки
-                if href.startswith("/"):
+                address = None
 
-                    full_link = (
+                # =========================
+                # ИЩЕМ НАЗВАНИЕ
+                # =========================
+
+                try:
+
+                    links = card.locator("a")
+
+                    links_count = await links.count()
+
+                    for j in range(links_count):
+
+                        temp_text = (
+                            await links.nth(j).inner_text()
+                        ).strip()
+
+                        if (
+                            len(temp_text) > 4
+                            and "favoriet" not in temp_text.lower()
+                        ):
+
+                            address = temp_text
+                            break
+
+                except:
+                    pass
+
+                if not address:
+                    continue
+
+                # УБИРАЕМ ДУБЛИ
+                if address in processed_addresses:
+                    continue
+
+                processed_addresses.add(address)
+
+                # =========================
+                # ИЩЕМ ССЫЛКУ КВАРТИРЫ
+                # =========================
+
+                apartment_link = None
+
+                links = card.locator("a")
+
+                links_count = await links.count()
+
+                for j in range(links_count):
+
+                    href = await links.nth(j).get_attribute("href")
+
+                    if not href:
+                        continue
+
+                    if (
+                        "facebook" in href.lower()
+                        or "instagram" in href.lower()
+                        or "linkedin" in href.lower()
+                    ):
+                        continue
+
+                    if href.startswith("/"):
+
+                        apartment_link = (
+                            "https://www.campusgroningen.com"
+                            + href
+                        )
+
+                    elif href.startswith(
                         "https://www.campusgroningen.com"
-                        + href
-                    )
+                    ):
 
-                elif href.startswith(
-                    "https://www.campusgroningen.com"
-                ):
+                        apartment_link = href
 
-                    full_link = href
+                    if apartment_link:
+                        break
 
-                else:
-                    continue
+                if apartment_link:
 
-                # исключаем dashboard страницы
-                if (
-                    "/dashboard/" in full_link
-                    or "/mijn-favorieten" in full_link
-                ):
-                    continue
+                    apartment_links.append({
+                        "title": address,
+                        "url": apartment_link
+                    })
 
-                # только уникальные
-                if full_link not in apartment_links:
+            except Exception as e:
 
-                    apartment_links.append(full_link)
-
-            except:
-                pass
+                log(
+                    f"⚠️ Ошибка карточки: {e}"
+                )
 
         log(
-            f"📋 Найдено объявлений: {len(apartment_links)}"
+            f"✅ Уникальных объявлений: {len(apartment_links)}"
         )
+
+        # =========================
+        # ПРОВЕРЯЕМ КАЖДУЮ КВАРТИРУ
+        # =========================
 
         found_any = False
 
-        for index, apartment_url in enumerate(apartment_links, start=1):
+        for index, apartment in enumerate(apartment_links, start=1):
 
             try:
+
+                apartment_url = apartment["url"]
+                title = apartment["title"]
 
                 log(
                     f"🔍 Проверяю объявление #{index}"
                 )
+
+                log(f"🏠 {title}")
 
                 log(f"🔗 {apartment_url}")
 
@@ -275,22 +345,9 @@ async def check_apartments(page):
                     await page.content()
                 ).lower()
 
-                title = "Неизвестное объявление"
-
-                try:
-
-                    h1 = page.locator("h1")
-
-                    if await h1.count() > 0:
-
-                        title = (
-                            await h1.first.inner_text()
-                        ).strip()
-
-                except:
-                    pass
-
-                log(f"🏠 {title}")
+                # =========================
+                # ИЩЕМ КНОПКУ ЗАПИСИ
+                # =========================
 
                 join_selectors = [
 
@@ -332,7 +389,10 @@ async def check_apartments(page):
                     except:
                         pass
 
-                # fallback по тексту
+                # =========================
+                # FALLBACK ПО ТЕКСТУ
+                # =========================
+
                 if not has_join_button:
 
                     checks = [
@@ -358,6 +418,10 @@ async def check_apartments(page):
 
                             break
 
+                # =========================
+                # ОТПРАВКА УВЕДОМЛЕНИЯ
+                # =========================
+
                 if has_join_button:
 
                     found_any = True
@@ -375,7 +439,7 @@ async def check_apartments(page):
                     else:
 
                         log(
-                            "ℹ️ Уже отправлялось"
+                            "ℹ️ Уже отправлялось ранее"
                         )
 
                 else:
@@ -397,6 +461,16 @@ async def check_apartments(page):
             log("😴 Свободных записей пока нет")
 
     except Exception as e:
+
+        try:
+
+            await page.screenshot(
+                path="favorites_error.png",
+                full_page=True
+            )
+
+        except:
+            pass
 
         log(
             f"❌ Ошибка страницы избранного: {e}"
