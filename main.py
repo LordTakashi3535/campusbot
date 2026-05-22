@@ -68,7 +68,7 @@ async def login(page):
 
             return True
 
-        # Cookies
+        # cookies
         try:
 
             cookie_button = page.locator(
@@ -185,136 +185,120 @@ async def check_apartments(page):
 
         await page.wait_for_timeout(5000)
 
-        # =========================
-        # ИЩЕМ КАРТОЧКИ КВАРТИР
-        # =========================
-
-        cards = page.locator(
-            '.col-md-8 > .row'
-        )
-
-        cards_count = await cards.count()
-
-        log(f"📋 Найдено блоков: {cards_count}")
+        # ==========================================
+        # ИЩЕМ ССЫЛКИ НА КВАРТИРЫ
+        # ==========================================
 
         apartment_links = []
-        processed_addresses = set()
 
-        for i in range(cards_count):
+        all_links = page.locator("a")
+
+        links_count = await all_links.count()
+
+        log(
+            f"🔗 Всего ссылок на странице: {links_count}"
+        )
+
+        for i in range(links_count):
 
             try:
 
-                card = cards.nth(i)
+                link = all_links.nth(i)
 
-                text = await card.inner_text()
+                href = await link.get_attribute("href")
 
-                text_lower = text.lower()
+                text = (
+                    await link.inner_text()
+                ).strip()
 
-                # Только реальные квартиры
-                if (
-                    "woning" not in text_lower
-                    or "huurprijs" not in text_lower
-                ):
+                if not href:
                     continue
 
-                address = None
-
-                # =========================
-                # ИЩЕМ НАЗВАНИЕ
-                # =========================
-
-                try:
-
-                    links = card.locator("a")
-
-                    links_count = await links.count()
-
-                    for j in range(links_count):
-
-                        temp_text = (
-                            await links.nth(j).inner_text()
-                        ).strip()
-
-                        if (
-                            len(temp_text) > 4
-                            and "favoriet" not in temp_text.lower()
-                        ):
-
-                            address = temp_text
-                            break
-
-                except:
-                    pass
-
-                if not address:
+                if not text:
                     continue
 
-                # УБИРАЕМ ДУБЛИ
-                if address in processed_addresses:
+                # короткий мусор
+                if len(text) < 5:
                     continue
 
-                processed_addresses.add(address)
+                blocked_words = [
 
-                # =========================
-                # ИЩЕМ ССЫЛКУ КВАРТИРЫ
-                # =========================
+                    "favoriet",
+                    "home",
+                    "facebook",
+                    "instagram",
+                    "linkedin",
+                    "huurprijs",
+                    "woning",
+                    "toegevoegd",
+                    "overview",
+                    "profiel"
 
-                apartment_link = None
+                ]
 
-                links = card.locator("a")
+                skip = False
 
-                links_count = await links.count()
+                for word in blocked_words:
 
-                for j in range(links_count):
+                    if word in text.lower():
 
-                    href = await links.nth(j).get_attribute("href")
-
-                    if not href:
-                        continue
-
-                    if (
-                        "facebook" in href.lower()
-                        or "instagram" in href.lower()
-                        or "linkedin" in href.lower()
-                    ):
-                        continue
-
-                    if href.startswith("/"):
-
-                        apartment_link = (
-                            "https://www.campusgroningen.com"
-                            + href
-                        )
-
-                    elif href.startswith(
-                        "https://www.campusgroningen.com"
-                    ):
-
-                        apartment_link = href
-
-                    if apartment_link:
+                        skip = True
                         break
 
-                if apartment_link:
+                if skip:
+                    continue
 
-                    apartment_links.append({
-                        "title": address,
-                        "url": apartment_link
-                    })
+                # собираем ссылку
+                if href.startswith("/"):
 
-            except Exception as e:
+                    full_link = (
+                        "https://www.campusgroningen.com"
+                        + href
+                    )
 
-                log(
-                    f"⚠️ Ошибка карточки: {e}"
-                )
+                elif href.startswith(
+                    "https://www.campusgroningen.com"
+                ):
+
+                    full_link = href
+
+                else:
+                    continue
+
+                # dashboard не нужен
+                if "/dashboard/" in full_link:
+                    continue
+
+                # уже добавлено
+                already_exists = False
+
+                for item in apartment_links:
+
+                    if item["url"] == full_link:
+
+                        already_exists = True
+                        break
+
+                if already_exists:
+                    continue
+
+                apartment_links.append({
+
+                    "title": text,
+                    "url": full_link
+
+                })
+
+            except:
+                pass
 
         log(
-            f"✅ Уникальных объявлений: {len(apartment_links)}"
+            f"✅ Найдено объявлений: {len(apartment_links)}"
         )
 
-        # =========================
+        # ==========================================
         # ПРОВЕРЯЕМ КАЖДУЮ КВАРТИРУ
-        # =========================
+        # ==========================================
 
         found_any = False
 
@@ -331,8 +315,6 @@ async def check_apartments(page):
 
                 log(f"🏠 {title}")
 
-                log(f"🔗 {apartment_url}")
-
                 await page.goto(
                     apartment_url,
                     wait_until="domcontentloaded",
@@ -341,13 +323,9 @@ async def check_apartments(page):
 
                 await page.wait_for_timeout(5000)
 
-                page_text = (
-                    await page.content()
-                ).lower()
-
-                # =========================
+                # ==========================================
                 # ИЩЕМ КНОПКУ ЗАПИСИ
-                # =========================
+                # ==========================================
 
                 join_selectors = [
 
@@ -381,7 +359,7 @@ async def check_apartments(page):
                                 has_join_button = True
 
                                 log(
-                                    f"✅ Найдена кнопка: {selector}"
+                                    f"✅ Найдена кнопка записи"
                                 )
 
                                 break
@@ -389,26 +367,9 @@ async def check_apartments(page):
                     except:
                         pass
 
-                # =========================
-                # FALLBACK ПО ТЕКСТУ
-                # =========================
-
-                join_selectors = [
-
-                    'button:has-text("Deelnemen")',
-                    'button:has-text("Inschrijven")',
-                    'a:has-text("Deelnemen")',
-                    'a:has-text("Inschrijven")',
-                    'button:has-text("Participate")',
-                    'button:has-text("Join")',
-                    'a:has-text("Participate")',
-                    'a:has-text("Join")'
-                
-                ]
-
-                # =========================
-                # ОТПРАВКА УВЕДОМЛЕНИЯ
-                # =========================
+                # ==========================================
+                # УВЕДОМЛЕНИЕ
+                # ==========================================
 
                 if has_join_button:
 
@@ -520,7 +481,9 @@ async def main():
 
                     except Exception as e:
 
-                        log(f"⚠️ Ошибка цикла: {e}")
+                        log(
+                            f"⚠️ Ошибка цикла: {e}"
+                        )
 
                     await asyncio.sleep(
                         CHECK_INTERVAL
