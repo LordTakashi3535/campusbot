@@ -339,55 +339,45 @@ async def check_apartments(page):
                 await page.wait_for_timeout(5000)
 
                 # ==========================================
-                # ИЩЕМ КНОПКУ ЗАПИСИ
+                # ИЩЕМ РЕАЛЬНУЮ ЗАПИСЬ
                 # ==========================================
-
-                join_selectors = [
-
-                    'button:has-text("Deelnemen")',
-                    'button:has-text("Inschrijven")',
-                    'a:has-text("Deelnemen")',
-                    'a:has-text("Inschrijven")',
-                    'button:has-text("Participate")',
-                    'button:has-text("Join")',
-                    'a:has-text("Participate")',
-                    'a:has-text("Join")'
-
-                ]
 
                 has_join_button = False
 
-                for selector in join_selectors:
+                main_content = page.locator("main")
 
-                    try:
+                if await main_content.count() == 0:
 
-                        locator = page.locator(
-                            selector
+                    main_content = page.locator(
+                        "body"
+                    )
+
+                main_text = (
+                    await main_content.first
+                    .inner_text()
+                ).lower()
+
+                keywords = [
+
+                    "bezichtiging",
+                    "deelnemen aan bezichtiging",
+                    "inschrijven voor bezichtiging",
+                    "deelnemen",
+                    "beschikbare kijkmomenten"
+
+                ]
+
+                for word in keywords:
+
+                    if word in main_text:
+
+                        has_join_button = True
+
+                        log(
+                            f"✅ Найдена запись: {word}"
                         )
 
-                        count = (
-                            await locator.count()
-                        )
-
-                        if count > 0:
-
-                            visible = await (
-                                locator.first
-                                .is_visible()
-                            )
-
-                            if visible:
-
-                                has_join_button = True
-
-                                log(
-                                    "✅ Найдена кнопка записи"
-                                )
-
-                                break
-
-                    except:
-                        pass
+                        break
 
                 # ==========================================
                 # УВЕДОМЛЕНИЕ
