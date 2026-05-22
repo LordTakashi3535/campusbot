@@ -243,11 +243,14 @@ async def check_apartments(page):
                 except:
                     pass
 
-                # Удаляем дубли
-                if title in processed_titles:
-                    continue
+                processed_items = set()
 
-                processed_titles.add(title)
+                identifier = f"{title}_{index}"
+                
+                if identifier in processed_items:
+                    continue
+                
+                processed_items.add(identifier)
 
                 log(
                     f"🔍 Проверяю объявление #{len(processed_titles)}"
