@@ -59,9 +59,8 @@ async def login(page):
 
         current_url = page.url.lower()
 
-        # Уже авторизован
         if (
-            "mijncampus" in current_url
+            "dashboard" in current_url
             or "favorieten" in current_url
         ):
 
@@ -125,8 +124,6 @@ async def login(page):
 
         current_url = page.url.lower()
 
-        log(f"🌍 URL после логина: {current_url}")
-
         page_text = (
             await page.content()
         ).lower()
@@ -134,8 +131,7 @@ async def login(page):
         success = (
             "uitloggen" in page_text
             or "mijn favorieten" in page_text
-            or "logout" in page_text
-            or "mijncampus" in current_url
+            or "dashboard" in current_url
             or "favorieten" in current_url
         )
 
@@ -172,6 +168,7 @@ async def login(page):
 
         return False
 
+
 async def check_apartments(page):
 
     global sent_links
@@ -188,140 +185,177 @@ async def check_apartments(page):
 
         await page.wait_for_timeout(5000)
 
-        # Карточки квартир
-        listings = page.locator(
-            '.col-md-8 .row'
-        )
+        apartment_links = []
 
-        count = await listings.count()
+        # Ищем ссылки квартир
+        all_links = page.locator("a")
 
-        log(f"📋 Найдено блоков: {count}")
+        links_count = await all_links.count()
 
-        found_any = False
-        processed_titles = set()
-
-        for index in range(count):
+        for i in range(links_count):
 
             try:
 
-                item = listings.nth(index)
+                href = await all_links.nth(i).get_attribute("href")
 
-                text = await item.inner_text()
-
-                text_lower = text.lower()
-
-                # Только реальные карточки
-                if (
-                    "woning" not in text_lower
-                    or "huurprijs" not in text_lower
-                ):
+                if not href:
                     continue
 
-                # Название
-                title = "Неизвестно"
+                # Только ссылки квартир
+                if "/aanbod/" in href:
+
+                    if href.startswith("http"):
+
+                        full_link = href
+
+                    else:
+
+                        full_link = (
+                            "https://www.campusgroningen.com"
+                            + href
+                        )
+
+                    if full_link not in apartment_links:
+
+                        apartment_links.append(full_link)
+
+            except:
+                pass
+
+        log(
+            f"📋 Найдено объявлений: {len(apartment_links)}"
+        )
+
+        found_any = False
+
+        # Проверяем каждую квартиру
+        for index, apartment_url in enumerate(apartment_links, start=1):
+
+            try:
+
+                log(
+                    f"🔍 Проверяю объявление #{index}"
+                )
+
+                log(f"🔗 {apartment_url}")
+
+                await page.goto(
+                    apartment_url,
+                    wait_until="domcontentloaded",
+                    timeout=60000
+                )
+
+                await page.wait_for_timeout(5000)
+
+                page_text = (
+                    await page.content()
+                ).lower()
+
+                title = "Неизвестное объявление"
 
                 try:
 
-                    links = item.locator("a")
+                    title_locator = page.locator(
+                        "h1"
+                    )
 
-                    links_count = await links.count()
+                    if await title_locator.count() > 0:
 
-                    for i in range(links_count):
-
-                        temp_text = (
-                            await links.nth(i).inner_text()
+                        title = (
+                            await title_locator.first.inner_text()
                         ).strip()
-
-                        if (
-                            len(temp_text) > 3
-                            and "favoriet" not in temp_text.lower()
-                        ):
-
-                            title = temp_text
-                            break
 
                 except:
                     pass
 
-                processed_items = set()
-
-                identifier = f"{title}_{index}"
-                
-                if identifier in processed_items:
-                    continue
-                
-                processed_items.add(identifier)
-
-                log(
-                    f"🔍 Проверяю объявление #{len(processed_titles)}"
-                )
-
                 log(f"🏠 {title}")
 
-                # Проверка записи
-                has_join_button = (
-                    "deelnemen" in text_lower
-                    or "inschrijven" in text_lower
-                    or "bezichtiging" in text_lower
-                    or "viewing" in text_lower
-                    or "participate" in text_lower
-                    or "join" in text_lower
-                )
+                # Ищем кнопку записи
+                join_selectors = [
 
-                if has_join_button:
+                    'button:has-text("Deelnemen")',
+                    'button:has-text("Inschrijven")',
+                    'a:has-text("Deelnemen")',
+                    'a:has-text("Inschrijven")',
+                    'button:has-text("Participate")',
+                    'button:has-text("Join")',
+                    'a:has-text("Participate")',
+                    'a:has-text("Join")'
 
-                    found_any = True
+                ]
 
-                    log("🎉 Найдена возможность записи!")
+                has_join_button = False
 
-                    link = (
-                        "https://www.campusgroningen.com/dashboard/mijn-favorieten"
-                    )
+                for selector in join_selectors:
 
                     try:
 
-                        all_links = item.locator("a")
+                        locator = page.locator(selector)
 
-                        links_count = await all_links.count()
+                        count = await locator.count()
 
-                        for i in range(links_count):
+                        if count > 0:
 
-                            href = await all_links.nth(i).get_attribute("href")
+                            visible = await locator.first.is_visible()
 
-                            if (
-                                href
-                                and "/aanbod/" in href
-                            ):
+                            if visible:
 
-                                if href.startswith("http"):
+                                has_join_button = True
 
-                                    link = href
-
-                                else:
-
-                                    link = (
-                                        "https://www.campusgroningen.com"
-                                        + href
-                                    )
+                                log(
+                                    f"✅ Найдена кнопка: {selector}"
+                                )
 
                                 break
 
                     except:
                         pass
 
-                    if link not in sent_links:
+                # Дополнительная проверка текста
+                if not has_join_button:
 
-                        sent_links.add(link)
+                    text_checks = [
+
+                        "deelnemen",
+                        "inschrijven",
+                        "bezichtiging",
+                        "viewing",
+                        "participate",
+                        "join"
+
+                    ]
+
+                    for word in text_checks:
+
+                        if word in page_text:
+
+                            has_join_button = True
+
+                            log(
+                                f"✅ Найден текст записи: {word}"
+                            )
+
+                            break
+
+                if has_join_button:
+
+                    found_any = True
+
+                    if apartment_url not in sent_links:
+
+                        sent_links.add(apartment_url)
 
                         log(
                             f"🚨 ДОСТУПНА ЗАПИСЬ НА ПРОСМОТР!\n\n"
                             f"🏠 {title}\n\n"
-                            f"🔗 {link}"
+                            f"🔗 {apartment_url}"
                         )
 
                     else:
 
-                        log("ℹ️ Уже отправлялось")
+                        log(
+                            "ℹ️ Уже отправлялось ранее"
+                        )
 
                 else:
 
@@ -334,7 +368,7 @@ async def check_apartments(page):
                 )
 
         log(
-            f"✅ Обработано объявлений: {len(processed_titles)}"
+            f"✅ Проверено объявлений: {len(apartment_links)}"
         )
 
         if not found_any:
@@ -356,6 +390,7 @@ async def check_apartments(page):
         log(
             f"❌ Ошибка страницы избранного: {e}"
         )
+
 
 async def main():
 
@@ -403,7 +438,7 @@ async def main():
                         else:
 
                             log(
-                                "⚠️ Пропускаю проверку объявлений из-за ошибки логина"
+                                "⚠️ Пропускаю проверку из-за ошибки логина"
                             )
 
                         log(
