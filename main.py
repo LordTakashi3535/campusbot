@@ -393,30 +393,18 @@ async def check_apartments(page):
                 # FALLBACK ПО ТЕКСТУ
                 # =========================
 
-                if not has_join_button:
+                join_selectors = [
 
-                    checks = [
-
-                        "deelnemen",
-                        "inschrijven",
-                        "bezichtiging",
-                        "viewing",
-                        "participate",
-                        "join"
-
-                    ]
-
-                    for word in checks:
-
-                        if word in page_text:
-
-                            has_join_button = True
-
-                            log(
-                                f"✅ Найден текст: {word}"
-                            )
-
-                            break
+                    'button:has-text("Deelnemen")',
+                    'button:has-text("Inschrijven")',
+                    'a:has-text("Deelnemen")',
+                    'a:has-text("Inschrijven")',
+                    'button:has-text("Participate")',
+                    'button:has-text("Join")',
+                    'a:has-text("Participate")',
+                    'a:has-text("Join")'
+                
+                ]
 
                 # =========================
                 # ОТПРАВКА УВЕДОМЛЕНИЯ
