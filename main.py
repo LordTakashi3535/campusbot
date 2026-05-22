@@ -187,7 +187,7 @@ async def check_apartments(page):
 
         apartment_links = []
 
-        # Ищем ссылки квартир
+        # Берем все ссылки
         all_links = page.locator("a")
 
         links_count = await all_links.count()
@@ -198,26 +198,51 @@ async def check_apartments(page):
 
                 href = await all_links.nth(i).get_attribute("href")
 
+                text = (
+                    await all_links.nth(i).inner_text()
+                ).strip()
+
                 if not href:
                     continue
 
-                # Только ссылки квартир
-                if "/aanbod/" in href:
+                # пропускаем мусор
+                if (
+                    "facebook" in href.lower()
+                    or "instagram" in href.lower()
+                    or "linkedin" in href.lower()
+                    or "twitter" in href.lower()
+                    or text.lower() == "home"
+                ):
+                    continue
 
-                    if href.startswith("http"):
+                # только внутренние ссылки
+                if href.startswith("/"):
 
-                        full_link = href
+                    full_link = (
+                        "https://www.campusgroningen.com"
+                        + href
+                    )
 
-                    else:
+                elif href.startswith(
+                    "https://www.campusgroningen.com"
+                ):
 
-                        full_link = (
-                            "https://www.campusgroningen.com"
-                            + href
-                        )
+                    full_link = href
 
-                    if full_link not in apartment_links:
+                else:
+                    continue
 
-                        apartment_links.append(full_link)
+                # исключаем dashboard страницы
+                if (
+                    "/dashboard/" in full_link
+                    or "/mijn-favorieten" in full_link
+                ):
+                    continue
+
+                # только уникальные
+                if full_link not in apartment_links:
+
+                    apartment_links.append(full_link)
 
             except:
                 pass
@@ -228,7 +253,6 @@ async def check_apartments(page):
 
         found_any = False
 
-        # Проверяем каждую квартиру
         for index, apartment_url in enumerate(apartment_links, start=1):
 
             try:
@@ -255,14 +279,12 @@ async def check_apartments(page):
 
                 try:
 
-                    title_locator = page.locator(
-                        "h1"
-                    )
+                    h1 = page.locator("h1")
 
-                    if await title_locator.count() > 0:
+                    if await h1.count() > 0:
 
                         title = (
-                            await title_locator.first.inner_text()
+                            await h1.first.inner_text()
                         ).strip()
 
                 except:
@@ -270,7 +292,6 @@ async def check_apartments(page):
 
                 log(f"🏠 {title}")
 
-                # Ищем кнопку записи
                 join_selectors = [
 
                     'button:has-text("Deelnemen")',
@@ -311,10 +332,10 @@ async def check_apartments(page):
                     except:
                         pass
 
-                # Дополнительная проверка текста
+                # fallback по тексту
                 if not has_join_button:
 
-                    text_checks = [
+                    checks = [
 
                         "deelnemen",
                         "inschrijven",
@@ -325,14 +346,14 @@ async def check_apartments(page):
 
                     ]
 
-                    for word in text_checks:
+                    for word in checks:
 
                         if word in page_text:
 
                             has_join_button = True
 
                             log(
-                                f"✅ Найден текст записи: {word}"
+                                f"✅ Найден текст: {word}"
                             )
 
                             break
@@ -354,7 +375,7 @@ async def check_apartments(page):
                     else:
 
                         log(
-                            "ℹ️ Уже отправлялось ранее"
+                            "ℹ️ Уже отправлялось"
                         )
 
                 else:
@@ -376,16 +397,6 @@ async def check_apartments(page):
             log("😴 Свободных записей пока нет")
 
     except Exception as e:
-
-        try:
-
-            await page.screenshot(
-                path="favorites_error.png",
-                full_page=True
-            )
-
-        except:
-            pass
 
         log(
             f"❌ Ошибка страницы избранного: {e}"
