@@ -188,81 +188,74 @@ async def check_apartments(page):
 
         await page.wait_for_timeout(5000)
 
-        # Берем только реальные карточки квартир
-        listings = await page.locator(
-            'div:has-text("Woning")'
-        ).all()
-
-        valid_listings = []
-
-        for item in listings:
-
-            try:
-
-                text = await item.inner_text()
-
-                text_lower = text.lower()
-
-                # Настоящая карточка квартиры
-                if (
-                    "woning" in text_lower
-                    and "huurprijs" in text_lower
-                ):
-
-                    valid_listings.append(item)
-
-            except:
-                pass
-
-        log(
-            f"📋 Найдено объявлений: {len(valid_listings)}"
+        # Карточки квартир
+        listings = page.locator(
+            '.col-md-8 .row'
         )
 
-        found_any = False
+        count = await listings.count()
 
-        for index, item in enumerate(valid_listings, start=1):
+        log(f"📋 Найдено блоков: {count}")
+
+        found_any = False
+        processed_titles = set()
+
+        for index in range(count):
 
             try:
+
+                item = listings.nth(index)
 
                 text = await item.inner_text()
 
                 text_lower = text.lower()
 
-                log(f"🔍 Проверяю объявление #{index}")
+                # Только реальные карточки
+                if (
+                    "woning" not in text_lower
+                    or "huurprijs" not in text_lower
+                ):
+                    continue
 
-                # Название квартиры
-                title = "Неизвестное объявление"
+                # Название
+                title = "Неизвестно"
 
                 try:
 
-                    title_locator = item.locator("a")
+                    links = item.locator("a")
 
-                    count = await title_locator.count()
+                    links_count = await links.count()
 
-                    if count > 0:
+                    for i in range(links_count):
 
-                        for i in range(count):
+                        temp_text = (
+                            await links.nth(i).inner_text()
+                        ).strip()
 
-                            temp = title_locator.nth(i)
+                        if (
+                            len(temp_text) > 3
+                            and "favoriet" not in temp_text.lower()
+                        ):
 
-                            temp_text = (
-                                await temp.inner_text()
-                            ).strip()
-
-                            if (
-                                len(temp_text) > 3
-                                and "favoriet" not in temp_text.lower()
-                            ):
-
-                                title = temp_text
-                                break
+                            title = temp_text
+                            break
 
                 except:
                     pass
 
+                # Удаляем дубли
+                if title in processed_titles:
+                    continue
+
+                processed_titles.add(title)
+
+                log(
+                    f"🔍 Проверяю объявление #{len(processed_titles)}"
+                )
+
                 log(f"🏠 {title}")
 
-                # Ищем запись на просмотр
+                # Проверка записи
                 has_join_button = (
                     "deelnemen" in text_lower
                     or "inschrijven" in text_lower
@@ -286,9 +279,9 @@ async def check_apartments(page):
 
                         all_links = item.locator("a")
 
-                        count = await all_links.count()
+                        links_count = await all_links.count()
 
-                        for i in range(count):
+                        for i in range(links_count):
 
                             href = await all_links.nth(i).get_attribute("href")
 
@@ -336,6 +329,10 @@ async def check_apartments(page):
                 log(
                     f"⚠️ Ошибка проверки объявления: {e}"
                 )
+
+        log(
+            f"✅ Обработано объявлений: {len(processed_titles)}"
+        )
 
         if not found_any:
 
