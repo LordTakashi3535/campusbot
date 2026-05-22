@@ -51,7 +51,7 @@ async def login(page):
 
         await page.goto(
             "https://www.campusgroningen.com",
-            wait_until="networkidle",
+            wait_until="domcontentloaded",
             timeout=60000
         )
 
@@ -59,6 +59,7 @@ async def login(page):
 
         current_url = page.url.lower()
 
+        # Уже авторизован
         if (
             "mijncampus" in current_url
             or "favorieten" in current_url
@@ -68,18 +69,18 @@ async def login(page):
 
             return True
 
-        # cookies
+        # Cookies
         try:
 
-            cookie_btn = page.locator(
+            cookie_button = page.locator(
                 'button:has-text("Accept")'
             )
 
-            if await cookie_btn.count() > 0:
+            if await cookie_button.count() > 0:
 
                 log("🍪 Принимаю cookies")
 
-                await cookie_btn.click(
+                await cookie_button.first.click(
                     force=True
                 )
 
@@ -120,17 +121,16 @@ async def login(page):
 
         await password_input.press("Enter")
 
-        await page.wait_for_timeout(15000)
+        await page.wait_for_timeout(10000)
 
         current_url = page.url.lower()
+
+        log(f"🌍 URL после логина: {current_url}")
 
         page_text = (
             await page.content()
         ).lower()
 
-        log(f"🌍 URL после логина: {current_url}")
-
-        # Проверяем успешный вход
         success = (
             "uitloggen" in page_text
             or "mijn favorieten" in page_text
@@ -153,16 +153,6 @@ async def login(page):
                 path="login_failed.png",
                 full_page=True
             )
-
-            html = await page.content()
-
-            with open(
-                "login_failed.html",
-                "w",
-                encoding="utf-8"
-            ) as f:
-
-                f.write(html)
 
             return False
 
