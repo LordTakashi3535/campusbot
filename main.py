@@ -35,7 +35,7 @@ def log(text):
                 "chat_id": TELEGRAM_CHAT_ID,
                 "text": message
             },
-            timeout=10
+            timeout=15
         )
 
     except Exception as e:
@@ -57,18 +57,28 @@ async def login(page):
 
         await page.wait_for_timeout(5000)
 
-        # Уже авторизован
-        if "mijncampus" in page.url.lower():
+        current_url = page.url.lower()
+
+        # Уже залогинен
+        if (
+            "mijncampus" in current_url
+            or "favorieten" in current_url
+        ):
 
             log("✅ Уже авторизован")
 
-            return
+            return True
 
         log("🔐 Начинаю авторизацию...")
 
-        await page.click("text=Inloggen", timeout=10000)
+        # Кнопка логина
+        await page.click(
+            "text=Inloggen",
+            force=True,
+            timeout=30000
+        )
 
-        await page.wait_for_timeout(3000)
+        await page.wait_for_timeout(4000)
 
         log("📧 Ввожу email...")
 
@@ -84,25 +94,62 @@ async def login(page):
             PASSWORD
         )
 
+        await page.wait_for_timeout(1000)
+
         log("🚀 Отправляю форму входа...")
 
-        await page.click(
+        submit_button = page.locator(
             'button[type="submit"]'
+        ).first
+
+        await submit_button.click(
+            force=True,
+            timeout=30000
         )
 
-        await page.wait_for_timeout(8000)
+        await page.wait_for_timeout(10000)
 
-        if "mijncampus" in page.url.lower():
+        current_url = page.url.lower()
+
+        page_text = (
+            await page.content()
+        ).lower()
+
+        if (
+            "uitloggen" in page_text
+            or "mijn favorieten" in page_text
+            or "mijncampus" in current_url
+            or "favorieten" in current_url
+        ):
 
             log("✅ Авторизация успешна")
 
+            return True
+
         else:
 
-            log("⚠️ Возможно логин не удался")
+            log("⚠️ Не удалось подтвердить логин")
+
+            await page.screenshot(
+                path="login_failed.png"
+            )
+
+            return False
 
     except Exception as e:
 
+        try:
+
+            await page.screenshot(
+                path="login_error.png"
+            )
+
+        except:
+            pass
+
         log(f"❌ Ошибка логина: {e}")
+
+        return False
 
 
 async def check_apartments(page):
@@ -150,7 +197,9 @@ async def check_apartments(page):
 
                     log("🎉 Найдена запись на просмотр!")
 
-                    link = await item.locator("a").first.get_attribute("href")
+                    link = await item.locator(
+                        "a"
+                    ).first.get_attribute("href")
 
                     if not link:
 
@@ -164,13 +213,17 @@ async def check_apartments(page):
 
                     else:
 
-                        full_link = f"https://www.campusgroningen.com{link}"
+                        full_link = (
+                            f"https://www.campusgroningen.com{link}"
+                        )
 
                     title = "Неизвестное объявление"
 
                     try:
 
-                        title = await item.locator("h1, h2, h3").first.inner_text()
+                        title = await item.locator(
+                            "h1, h2, h3"
+                        ).first.inner_text()
 
                     except:
                         pass
@@ -195,7 +248,9 @@ async def check_apartments(page):
 
             except Exception as e:
 
-                log(f"⚠️ Ошибка проверки объявления: {e}")
+                log(
+                    f"⚠️ Ошибка проверки объявления: {e}"
+                )
 
         if not found_any:
 
@@ -203,7 +258,18 @@ async def check_apartments(page):
 
     except Exception as e:
 
-        log(f"❌ Ошибка страницы избранного: {e}")
+        try:
+
+            await page.screenshot(
+                path="favorites_error.png"
+            )
+
+        except:
+            pass
+
+        log(
+            f"❌ Ошибка страницы избранного: {e}"
+        )
 
 
 async def main():
@@ -243,9 +309,17 @@ async def main():
 
                         log("🔄 Новый цикл проверки")
 
-                        await login(page)
+                        success = await login(page)
 
-                        await check_apartments(page)
+                        if success:
+
+                            await check_apartments(page)
+
+                        else:
+
+                            log(
+                                "⚠️ Пропускаю проверку объявлений из-за ошибки логина"
+                            )
 
                         log(
                             f"⏳ Ожидание {CHECK_INTERVAL} секунд..."
@@ -255,13 +329,19 @@ async def main():
 
                         log(f"⚠️ Ошибка цикла: {e}")
 
-                    await asyncio.sleep(CHECK_INTERVAL)
+                    await asyncio.sleep(
+                        CHECK_INTERVAL
+                    )
 
         except Exception as e:
 
-            log(f"🔥 КРИТИЧЕСКАЯ ОШИБКА: {e}")
+            log(
+                f"🔥 КРИТИЧЕСКАЯ ОШИБКА: {e}"
+            )
 
-            log("♻️ Перезапуск через 30 секунд...")
+            log(
+                "♻️ Перезапуск браузера через 30 секунд..."
+            )
 
             await asyncio.sleep(30)
 
