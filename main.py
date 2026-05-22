@@ -14,7 +14,7 @@ PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-CHECK_INTERVAL = 300  # 5 минут
+CHECK_INTERVAL = 60  # 5 минут
 
 sent_links = set()
 
