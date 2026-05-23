@@ -389,8 +389,8 @@ async def check_apartments(page):
                 try:
 
                     sidebar = page.locator(
-                        "text=Interesse in deze woning?"
-                    ).locator("..").first
+                        ".contactBar"
+                    ).first
 
                     await sidebar.wait_for(
                         timeout=10000
@@ -408,29 +408,28 @@ async def check_apartments(page):
                     )
 
                     # ==========================================
-                    # ИЩЕМ ТОЛЬКО РЕАЛЬНУЮ ЗАПИСЬ
+                    # ТЕСТОВЫЕ КЛЮЧЕВЫЕ СЛОВА
                     # ==========================================
 
                     register_words = [
 
+                        "stel een vraag",
                         "bezichtiging",
                         "deelnemen",
                         "plan bezichtiging",
                         "beschikbare kijkmomenten",
-                        "meld je aan",
-                        "Stel een vraag"
-                        
+                        "meld je aan"
 
                     ]
 
                     for word in register_words:
 
-                        if word in sidebar_text:
+                        if word.lower() in sidebar_text:
 
                             has_join_button = True
 
                             log(
-                                f"✅ Найдена запись: {word}"
+                                f"✅ Найдено слово: {word}"
                             )
 
                             break
