@@ -1,10 +1,24 @@
 import os
 import asyncio
+import threading
 from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
+
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update
+)
+
+from telegram.ext import (
+    Updater,
+    CommandHandler,
+    CallbackQueryHandler,
+    CallbackContext
+)
 
 load_dotenv()
 
@@ -14,18 +28,31 @@ PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-CHECK_INTERVAL = 60  # 5 минут
+CHECK_INTERVAL = 60
 
 sent_links = set()
 
+BOT_RUNNING = False
+STATUS_MESSAGE_ID = None
+LAST_ACTION = "Ожидание"
+CHECKED_APARTMENTS = 0
 
-def log(text):
+SPECIAL_WORDS = [
+    "bezichtiging",
+    "deelnemen",
+    "meld je aan",
+    "plan bezichtiging"
+]
+
+
+def console_log(text):
 
     now = datetime.now().strftime("%H:%M:%S")
 
-    message = f"[{now}] {text}"
+    print(f"[{now}] {text}")
 
-    print(message)
+
+def telegram_notify(text):
 
     try:
 
@@ -33,7 +60,7 @@ def log(text):
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
             json={
                 "chat_id": TELEGRAM_CHAT_ID,
-                "text": message
+                "text": text
             },
             timeout=15
         )
@@ -43,11 +70,103 @@ def log(text):
         print("Telegram error:", e)
 
 
-async def login(page):
+def get_status_text():
+
+    status = "🟢 ВКЛЮЧЕН" if BOT_RUNNING else "🔴 ВЫКЛЮЧЕН"
+
+    return (
+        "🤖 Campus Groningen Bot\n\n"
+        f"Статус: {status}\n"
+        f"📋 Действие: {LAST_ACTION}\n"
+        f"🏠 Проверено квартир: {CHECKED_APARTMENTS}\n"
+        f"⏰ {datetime.now().strftime('%H:%M:%S')}"
+    )
+
+
+def get_keyboard():
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "▶️ Запуск",
+                callback_data="start_bot"
+            ),
+            InlineKeyboardButton(
+                "⏹ Стоп",
+                callback_data="stop_bot"
+            )
+        ]
+    ]
+
+    return InlineKeyboardMarkup(keyboard)
+
+
+def start_command(update: Update, context: CallbackContext):
+
+    global STATUS_MESSAGE_ID
+
+    sent = update.message.reply_text(
+        get_status_text(),
+        reply_markup=get_keyboard()
+    )
+
+    STATUS_MESSAGE_ID = sent.message_id
+
+
+def button_handler(update: Update, context: CallbackContext):
+
+    global BOT_RUNNING
+    global LAST_ACTION
+
+    query = update.callback_query
+
+    query.answer()
+
+    if query.data == "start_bot":
+
+        BOT_RUNNING = True
+
+        LAST_ACTION = "Бот запущен"
+
+    elif query.data == "stop_bot":
+
+        BOT_RUNNING = False
+
+        LAST_ACTION = "Бот остановлен"
+
+    query.edit_message_text(
+        text=get_status_text(),
+        reply_markup=get_keyboard()
+    )
+
+
+def update_status_message(bot):
+
+    global STATUS_MESSAGE_ID
+
+    if not STATUS_MESSAGE_ID:
+        return
 
     try:
 
-        log("🌐 Открываю сайт...")
+        bot.edit_message_text(
+            chat_id=TELEGRAM_CHAT_ID,
+            message_id=STATUS_MESSAGE_ID,
+            text=get_status_text(),
+            reply_markup=get_keyboard()
+        )
+
+    except:
+        pass
+
+
+async def login(page):
+
+    global LAST_ACTION
+
+    try:
+
+        LAST_ACTION = "Открываю сайт"
 
         await page.goto(
             "https://www.campusgroningen.com",
@@ -63,10 +182,6 @@ async def login(page):
             await page.content()
         ).lower()
 
-        # ==========================================
-        # УЖЕ АВТОРИЗОВАН
-        # ==========================================
-
         if (
             "uitloggen" in page_text
             or "mijn favorieten" in page_text
@@ -74,13 +189,9 @@ async def login(page):
             or "mijncampus" in page_text
         ):
 
-            log("✅ Уже авторизован")
+            LAST_ACTION = "Уже авторизован"
 
             return True
-
-        # ==========================================
-        # COOKIES
-        # ==========================================
 
         try:
 
@@ -90,36 +201,19 @@ async def login(page):
 
             if await cookie_button.count() > 0:
 
-                log("🍪 Принимаю cookies")
-
-                await cookie_button.first.click(
-                    force=True
-                )
+                await cookie_button.first.click(force=True)
 
                 await page.wait_for_timeout(2000)
 
         except:
             pass
 
-        # ==========================================
-        # ОТКРЫВАЕМ ЛОГИН
-        # ==========================================
+        LAST_ACTION = "Авторизация"
 
-        login_button = page.locator(
-            "text=Inloggen"
-        )
+        login_button = page.locator("text=Inloggen")
 
-        login_count = await login_button.count()
-
-        if login_count == 0:
-
-            log(
-                "⚠️ Кнопка логина не найдена"
-            )
-
+        if await login_button.count() == 0:
             return False
-
-        log("🔐 Открываю окно логина...")
 
         await login_button.first.click(
             force=True,
@@ -128,23 +222,11 @@ async def login(page):
 
         await page.wait_for_timeout(5000)
 
-        # ==========================================
-        # EMAIL
-        # ==========================================
-
-        log("📧 Ввожу email...")
-
         email_input = page.locator(
             'input[type="email"]'
         ).first
 
         await email_input.fill(EMAIL)
-
-        # ==========================================
-        # PASSWORD
-        # ==========================================
-
-        log("🔑 Ввожу пароль...")
 
         password_input = page.locator(
             'input[type="password"]'
@@ -153,12 +235,6 @@ async def login(page):
         await password_input.fill(PASSWORD)
 
         await page.wait_for_timeout(2000)
-
-        # ==========================================
-        # ENTER
-        # ==========================================
-
-        log("⌨️ Нажимаю ENTER...")
 
         await password_input.press("Enter")
 
@@ -171,54 +247,34 @@ async def login(page):
         ).lower()
 
         success = (
-
             "uitloggen" in page_text
             or "mijn favorieten" in page_text
             or "dashboard" in current_url
             or "mijncampus" in page_text
-
         )
 
-        if success:
+        LAST_ACTION = "Авторизация успешна"
 
-            log("✅ Авторизация успешна")
-
-            return True
-
-        else:
-
-            log("❌ Логин не прошел")
-
-            await page.screenshot(
-                path="login_failed.png",
-                full_page=True
-            )
-
-            return False
+        return success
 
     except Exception as e:
 
-        try:
+        LAST_ACTION = "Ошибка логина"
 
-            await page.screenshot(
-                path="login_error.png",
-                full_page=True
-            )
-
-        except:
-            pass
-
-        log(f"❌ Ошибка логина: {e}")
+        console_log(str(e))
 
         return False
 
-async def check_apartments(page):
+
+async def check_apartments(page, telegram_bot):
 
     global sent_links
+    global CHECKED_APARTMENTS
+    global LAST_ACTION
 
     try:
 
-        log("🏠 Открываю избранные объявления...")
+        LAST_ACTION = "Открываю избранное"
 
         await page.goto(
             "https://www.campusgroningen.com/dashboard/mijn-favorieten",
@@ -228,18 +284,12 @@ async def check_apartments(page):
 
         await page.wait_for_timeout(5000)
 
-        # ==========================================
-        # ИЩЕМ КАРТОЧКИ КВАРТИР
-        # ==========================================
-
         apartment_links = []
         processed_urls = set()
 
         cards = page.locator(".row")
 
         cards_count = await cards.count()
-
-        log(f"📦 Всего row блоков: {cards_count}")
 
         for i in range(cards_count):
 
@@ -251,7 +301,6 @@ async def check_apartments(page):
                     await card.inner_text()
                 ).lower()
 
-                # Только реальные карточки квартир
                 if (
                     "huurprijs" not in card_text
                     or "toegevoegd op" not in card_text
@@ -275,19 +324,13 @@ async def check_apartments(page):
                             await link.inner_text()
                         ).strip()
 
-                        href = await link.get_attribute(
-                            "href"
-                        )
+                        href = await link.get_attribute("href")
 
-                        if not href:
-                            continue
-
-                        if not text:
+                        if not href or not text:
                             continue
 
                         text_lower = text.lower()
 
-                        # Пропускаем мусор
                         if (
                             "favoriet" in text_lower
                             or "verwijderen" in text_lower
@@ -297,7 +340,6 @@ async def check_apartments(page):
                         ):
                             continue
 
-                        # Только реальные квартиры
                         if (
                             "/woning/" not in href
                             and "/aanbod/" not in href
@@ -309,8 +351,7 @@ async def check_apartments(page):
                         if href.startswith("/"):
 
                             apartment_url = (
-                                "https://www.campusgroningen.com"
-                                + href
+                                "https://www.campusgroningen.com" + href
                             )
 
                         else:
@@ -325,52 +366,31 @@ async def check_apartments(page):
                 if not apartment_url:
                     continue
 
-                # Убираем дубли
                 if apartment_url in processed_urls:
                     continue
 
                 processed_urls.add(apartment_url)
 
                 apartment_links.append({
-
                     "title": apartment_title,
                     "url": apartment_url
-
                 })
 
-            except Exception as e:
+            except:
+                pass
 
-                log(
-                    f"⚠️ Ошибка карточки: {e}"
-                )
-
-        log(
-            f"✅ Найдено объявлений: {len(apartment_links)}"
-        )
-
-        # ==========================================
-        # ПРОВЕРЯЕМ КАЖДУЮ КВАРТИРУ
-        # ==========================================
-
-        found_any = False
-
-        for index, apartment in enumerate(
-            apartment_links,
-            start=1
-        ):
+        for apartment in apartment_links:
 
             try:
+
+                CHECKED_APARTMENTS += 1
 
                 apartment_url = apartment["url"]
                 title = apartment["title"]
 
-                log(
-                    f"🔍 Проверяю объявление #{index}"
-                )
+                LAST_ACTION = f"Проверяю: {title}"
 
-                log(f"🏠 {title}")
-
-                log(f"🔗 {apartment_url}")
+                update_status_message(telegram_bot)
 
                 await page.goto(
                     apartment_url,
@@ -380,24 +400,16 @@ async def check_apartments(page):
 
                 await page.wait_for_timeout(5000)
 
-                # ==========================================
-                # ИЩЕМ ПОЛНЫЙ SIDEBAR
-                # ==========================================
-
                 has_join_button = False
 
                 try:
 
-                    # Заголовок sidebar
                     sidebar_title = page.locator(
                         "text=Interesse in deze woning?"
                     ).first
 
-                    await sidebar_title.wait_for(
-                        timeout=10000
-                    )
+                    await sidebar_title.wait_for(timeout=10000)
 
-                    # Поднимаемся к полному контейнеру
                     sidebar = sidebar_title.locator(
                         "xpath=../../.."
                     )
@@ -406,126 +418,48 @@ async def check_apartments(page):
                         await sidebar.inner_text()
                     ).lower()
 
-                    log("📋 Sidebar найден")
-
-                    log(
-                        f"📄 Sidebar text:\n"
-                        f"{sidebar_text}"
-                    )
-
-                    # ==========================================
-                    # ИЩЕМ КНОПКУ ЗАПИСИ
-                    # ==========================================
-
-                    register_words = [
-
-                        # ТЕСТ
-                        "stel een vraag",
-
-                        # Реальные слова
-                        "bezichtiging",
-                        "deelnemen",
-                        "plan bezichtiging",
-                        "beschikbare kijkmomenten",
-                        "meld je aan"
-
-                    ]
-
-                    for word in register_words:
+                    for word in SPECIAL_WORDS:
 
                         if word.lower() in sidebar_text:
 
                             has_join_button = True
-
-                            log(
-                                f"✅ Найдено слово: {word}"
-                            )
-
                             break
 
-                except Exception as e:
-
-                    log(
-                        f"⚠️ Ошибка sidebar: {e}"
-                    )
-
-                # ==========================================
-                # УВЕДОМЛЕНИЕ
-                # ==========================================
+                except:
+                    pass
 
                 if has_join_button:
 
-                    found_any = True
+                    if apartment_url not in sent_links:
 
-                    if (
-                        apartment_url
-                        not in sent_links
-                    ):
+                        sent_links.add(apartment_url)
 
-                        sent_links.add(
-                            apartment_url
-                        )
-
-                        log(
+                        telegram_notify(
                             f"🚨 ДОСТУПНА ЗАПИСЬ НА ПРОСМОТР!\n\n"
                             f"🏠 {title}\n\n"
                             f"🔗 {apartment_url}"
                         )
 
-                    else:
-
-                        log(
-                            "ℹ️ Уже отправлялось ранее"
-                        )
-
-                else:
-
-                    log("❌ Записи нет")
-
             except Exception as e:
 
-                log(
-                    f"⚠️ Ошибка проверки объявления: {e}"
-                )
-
-        log(
-            f"✅ Проверено объявлений: "
-            f"{len(apartment_links)}"
-        )
-
-        if not found_any:
-
-            log(
-                "😴 Свободных записей пока нет"
-            )
+                console_log(str(e))
 
     except Exception as e:
 
-        try:
+        console_log(str(e))
 
-            await page.screenshot(
-                path="favorites_error.png",
-                full_page=True
-            )
 
-        except:
-            pass
-
-        log(
-            f"❌ Ошибка страницы избранного: {e}"
-        )
-        
 async def main():
 
-    log("🚀 Бот запущен")
+    global LAST_ACTION
+
+    console_log("Бот запущен")
 
     while True:
 
         try:
 
             async with async_playwright() as p:
-
-                log("🌐 Запуск браузера...")
 
                 browser = await p.chromium.launch(
                     headless=True,
@@ -544,51 +478,88 @@ async def main():
 
                 page = await context.new_page()
 
-                log("✅ Браузер успешно запущен")
+                updater = Updater(
+                    TELEGRAM_TOKEN,
+                    use_context=True
+                )
+
+                telegram_bot = updater.bot
 
                 while True:
 
                     try:
 
-                        log("🔄 Новый цикл проверки")
+                        if not BOT_RUNNING:
+
+                            LAST_ACTION = "Бот остановлен"
+
+                            update_status_message(
+                                telegram_bot
+                            )
+
+                            await asyncio.sleep(5)
+
+                            continue
 
                         success = await login(page)
 
+                        update_status_message(
+                            telegram_bot
+                        )
+
                         if success:
 
-                            await check_apartments(page)
-
-                        else:
-
-                            log(
-                                "⚠️ Пропускаю проверку из-за ошибки логина"
+                            await check_apartments(
+                                page,
+                                telegram_bot
                             )
 
-                        log(
-                            f"⏳ Ожидание {CHECK_INTERVAL} секунд..."
+                        LAST_ACTION = "Ожидание"
+
+                        update_status_message(
+                            telegram_bot
                         )
 
                     except Exception as e:
 
-                        log(
-                            f"⚠️ Ошибка цикла: {e}"
-                        )
+                        console_log(str(e))
 
-                    await asyncio.sleep(
-                        CHECK_INTERVAL
-                    )
+                    await asyncio.sleep(CHECK_INTERVAL)
 
         except Exception as e:
 
-            log(
-                f"🔥 КРИТИЧЕСКАЯ ОШИБКА: {e}"
-            )
-
-            log(
-                "♻️ Перезапуск браузера через 30 секунд..."
-            )
+            console_log(str(e))
 
             await asyncio.sleep(30)
 
+
+def start_telegram_bot():
+
+    updater = Updater(
+        TELEGRAM_TOKEN,
+        use_context=True
+    )
+
+    dp = updater.dispatcher
+
+    dp.add_handler(
+        CommandHandler("start", start_command)
+    )
+
+    dp.add_handler(
+        CallbackQueryHandler(button_handler)
+    )
+
+    updater.start_polling()
+
+    updater.idle()
+
+
+telegram_thread = threading.Thread(
+    target=start_telegram_bot,
+    daemon=True
+)
+
+telegram_thread.start()
 
 asyncio.run(main())
