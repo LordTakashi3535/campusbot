@@ -297,16 +297,15 @@ async def check_apartments(page):
                         ):
                             continue
 
-                        # Только ссылки квартир
+                        # Только реальные квартиры
                         if (
-                            "/aanbod/" not in href
-                            and "/woning/" not in href
+                            "/woning/" not in href
+                            and "/aanbod/" not in href
                         ):
                             continue
 
                         apartment_title = text
 
-                        # Собираем полный URL
                         if href.startswith("/"):
 
                             apartment_url = (
@@ -382,45 +381,69 @@ async def check_apartments(page):
                 await page.wait_for_timeout(5000)
 
                 # ==========================================
-                # ИЩЕМ РЕАЛЬНУЮ ЗАПИСЬ
+                # ИЩЕМ КНОПКУ ТОЛЬКО В SIDEBAR
                 # ==========================================
 
                 has_join_button = False
 
-                main_content = page.locator("main")
+                try:
 
-                if await main_content.count() == 0:
+                    sidebar = page.locator(
+                        'div:has-text("Interesse in deze woning?")'
+                    ).first
 
-                    main_content = page.locator(
-                        "body"
+                    await sidebar.wait_for(
+                        timeout=10000
                     )
 
-                main_text = (
-                    await main_content.first
-                    .inner_text()
-                ).lower()
+                    sidebar_text = (
+                        await sidebar.inner_text()
+                    ).lower()
 
-                keywords = [
+                    log("📋 Проверяю sidebar...")
 
-                    "bezichtiging",
-                    "deelnemen aan bezichtiging",
-                    "inschrijven voor bezichtiging",
-                    "deelnemen",
-                    "beschikbare kijkmomenten"
+                    log(
+                        f"📄 Sidebar text: "
+                        f"{sidebar_text[:300]}"
+                    )
 
-                ]
+                    # Слова реальной записи
+                    register_words = [
 
-                for word in keywords:
+                        "bezichtiging",
+                        "deelnemen",
+                        "inschrijven",
+                        "plan bezichtiging",
+                        "beschikbare kijkmomenten",
+                        "meld je aan"
 
-                    if word in main_text:
+                    ]
 
-                        has_join_button = True
+                    for word in register_words:
 
-                        log(
-                            f"✅ Найдена запись: {word}"
-                        )
+                        if word in sidebar_text:
 
-                        break
+                            # Игнорируем обычную кнопку вопроса
+                            if (
+                                "stel een vraag"
+                                in sidebar_text
+                                and word == "inschrijven"
+                            ):
+                                continue
+
+                            has_join_button = True
+
+                            log(
+                                f"✅ Найдена запись: {word}"
+                            )
+
+                            break
+
+                except Exception as e:
+
+                    log(
+                        f"⚠️ Ошибка sidebar: {e}"
+                    )
 
                 # ==========================================
                 # УВЕДОМЛЕНИЕ
