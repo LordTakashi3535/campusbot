@@ -316,18 +316,24 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        set_action("⏳ Oczekiwanie na start...")
+        set_action("⏳ Oczekiwanie na uruchomienie")
 
         while True:
 
             if not BOT_STATE["running"]:
-                await asyncio.sleep(1)
+                set_action("⏸ Bot zatrzymany — oczekiwanie na Start")
+                await asyncio.sleep(2)
                 continue
+
+            set_action("🌐 Logowanie...")
 
             ok = await login(page)
 
             if ok:
+                set_action("🔎 Sprawdzanie mieszkań...")
                 await check_apartments(page)
+
+            set_action(f"😴 Oczekiwanie {CHECK_INTERVAL}s na kolejną проверkę")
 
             await asyncio.sleep(CHECK_INTERVAL)
 
