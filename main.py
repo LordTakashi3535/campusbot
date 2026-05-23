@@ -367,20 +367,24 @@ async def check_apartments():
 
     apartments = []
 
+    log_text = (
+        "📋 LOG SPRAWDZANIA\n\n"
+    )
+
     for i in range(count):
 
         card = cards.nth(i)
 
         try:
 
-            text = (
+            card_text = (
                 await card.inner_text()
             ).lower()
 
         except:
             continue
 
-        if "huurprijs" not in text:
+        if "huurprijs" not in card_text:
             continue
 
         links = card.locator("a")
@@ -479,28 +483,24 @@ async def check_apartments():
             pass
 
         # =========================
-        # LOG SIDEBAR
+        # ADD TO GLOBAL LOG
         # =========================
 
         preview = (
-            text[:1200]
+            text[:700]
             if text
             else "BRAK TEKSTU"
         )
 
-        log_message = (
-            "📋 LOG MIESZKANIA\n\n"
-            f"🏠 {apt['title']}\n\n"
-            f"🔗 {apt['url']}\n\n"
+        log_text += (
+            f"🏠 {apt['title']}\n"
+            f"🔗 {apt['url']}\n"
             f"🔍 FOUND: {found}\n"
             f"🔤 MATCHED: {matched}\n\n"
-            "====================\n"
             "SIDEBAR:\n"
-            "====================\n\n"
-            f"{preview}"
+            f"{preview}\n\n"
+            "========================\n\n"
         )
-
-        send_log_message(log_message)
 
         # =========================
         # ALERT
@@ -514,6 +514,12 @@ async def check_apartments():
                 f"🔗 {apt['url']}\n"
                 f"🔤 Słowo: {matched}"
             )
+
+    # =========================
+    # SEND FINAL LOG
+    # =========================
+
+    send_log_message(log_text[:4000])
 
 
 # =========================
@@ -568,7 +574,7 @@ async def main():
             ok = await login()
 
             # =========================
-            # CHECK
+            # CHECK APARTMENTS
             # =========================
 
             if ok:
@@ -576,6 +582,11 @@ async def main():
                 await check_apartments()
 
                 BOT_STATE["search_cycles"] += 1
+
+                set_action(
+                    f"✅ Skończono cykl "
+                    f"#{BOT_STATE['search_cycles']}"
+                )
 
             # =========================
             # COUNTDOWN
@@ -588,6 +599,7 @@ async def main():
             ):
 
                 if not BOT_STATE["running"]:
+
                     break
 
                 BOT_STATE["countdown"] = remaining
@@ -605,12 +617,15 @@ async def main():
 
         except Exception as e:
 
+            error_text = str(e)
+
             set_action(
-                f"❌ Błąd: {str(e)}"
+                f"❌ Błąd: {error_text}"
             )
 
             send_log_message(
-                f"❌ ERROR:\n\n{str(e)}"
+                "❌ ERROR\n\n"
+                f"{error_text}"
             )
 
             await reset_browser()
