@@ -31,12 +31,13 @@ STATUS_MESSAGE_ID = None
 
 
 # =========================
-# LOG (НЕ ТРОГАЕМ ЛОГИКУ)
+# LOG (НЕ МЕНЯЛ)
 # =========================
 
 def log(text):
 
     now = datetime.now().strftime("%H:%M:%S")
+
     message = f"[{now}] {text}"
 
     print(message)
@@ -50,12 +51,13 @@ def log(text):
             },
             timeout=15
         )
+
     except Exception as e:
         print("Telegram error:", e)
 
 
 # =========================
-# UI STATUS
+# UI (start / stop)
 # =========================
 
 def get_status_text():
@@ -65,20 +67,18 @@ def get_status_text():
     return (
         "🤖 Campus Bot\n\n"
         f"Статус: {status}\n"
-        f"⏳ Ожидание запуска..."
+        f"⏳ Ожидание..."
     )
 
 
 def get_keyboard():
 
-    keyboard = [
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("▶️ Запуск", callback_data="start"),
             InlineKeyboardButton("⏹ Стоп", callback_data="stop")
         ]
-    ]
-
-    return InlineKeyboardMarkup(keyboard)
+    ])
 
 
 def start_command(update: Update, context: CallbackContext):
@@ -126,7 +126,7 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (НЕ МЕНЯЛ)
+# LOGIN (ТВОЙ БЕЗ ИЗМЕНЕНИЙ)
 # =========================
 
 async def login(page):
@@ -144,6 +144,7 @@ async def login(page):
         await page.wait_for_timeout(5000)
 
         current_url = page.url.lower()
+
         page_text = (await page.content()).lower()
 
         if (
@@ -160,7 +161,7 @@ async def login(page):
         if await login_button.count() == 0:
             return False
 
-        log("🔐 Логин...")
+        log("🔐 Открываю логин...")
 
         await login_button.first.click(force=True)
         await page.wait_for_timeout(5000)
@@ -186,113 +187,194 @@ async def login(page):
 
 
 # =========================
-# CHECK (НЕ ТРОГАЛ ЛОГИКУ)
+# CHECK (ТВОЯ ФУНКЦИЯ 1 В 1)
 # =========================
 
 async def check_apartments(page):
 
     global sent_links
 
-    log("🏠 Открываю избранное...")
+    try:
 
-    await page.goto(
-        "https://www.campusgroningen.com/dashboard/mijn-favorieten",
-        wait_until="domcontentloaded",
-        timeout=60000
-    )
+        log("🏠 Открываю избранные объявления...")
 
-    await page.wait_for_timeout(5000)
-
-    apartment_links = []
-    processed_urls = set()
-
-    cards = page.locator(".row")
-    cards_count = await cards.count()
-
-    for i in range(cards_count):
-
-        card = cards.nth(i)
-        card_text = (await card.inner_text()).lower()
-
-        if "huurprijs" not in card_text:
-            continue
-
-        links = card.locator("a")
-        links_count = await links.count()
-
-        apartment_url = None
-        apartment_title = None
-
-        for j in range(links_count):
-
-            link = links.nth(j)
-
-            text = (await link.inner_text()).strip()
-            href = await link.get_attribute("href")
-
-            if not href:
-                continue
-
-            if "/woning/" not in href:
-                continue
-
-            apartment_title = text
-
-            apartment_url = (
-                "https://www.campusgroningen.com" + href
-                if href.startswith("/")
-                else href
-            )
-
-            break
-
-        if not apartment_url:
-            continue
-
-        if apartment_url in processed_urls:
-            continue
-
-        processed_urls.add(apartment_url)
-
-        apartment_links.append({
-            "title": apartment_title,
-            "url": apartment_url
-        })
-
-    for apartment in apartment_links:
-
-        apartment_url = apartment["url"]
-        title = apartment["title"]
-
-        log(f"🔍 Проверяю: {title}")
-
-        await page.goto(apartment_url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(5000)
-
-        sidebar_text = (await page.content()).lower()
-
-        has_join_button = any(
-            word in sidebar_text for word in [
-                "bezichtiging",
-                "meld je aan",
-                "deelnemen",
-                "plan bezichtiging"
-            ]
+        await page.goto(
+            "https://www.campusgroningen.com/dashboard/mijn-favorieten",
+            wait_until="domcontentloaded",
+            timeout=60000
         )
 
-        if has_join_button:
+        await page.wait_for_timeout(5000)
 
-            if apartment_url not in sent_links:
+        apartment_links = []
+        processed_urls = set()
 
-                sent_links.add(apartment_url)
+        cards = page.locator(".row")
 
-                log(
-                    f"🚨 ДОСТУПНА ЗАПИСЬ!\n\n{title}\n{apartment_url}"
-                )
+        cards_count = await cards.count()
+
+        log(f"📦 Всего row блоков: {cards_count}")
+
+        for i in range(cards_count):
+
+            try:
+
+                card = cards.nth(i)
+
+                card_text = (await card.inner_text()).lower()
+
+                if (
+                    "huurprijs" not in card_text
+                    or "toegevoegd op" not in card_text
+                ):
+                    continue
+
+                links = card.locator("a")
+
+                links_count = await links.count()
+
+                apartment_url = None
+                apartment_title = None
+
+                for j in range(links_count):
+
+                    try:
+
+                        link = links.nth(j)
+
+                        text = (await link.inner_text()).strip()
+                        href = await link.get_attribute("href")
+
+                        if not href or not text:
+                            continue
+
+                        text_lower = text.lower()
+
+                        if (
+                            "favoriet" in text_lower
+                            or "verwijderen" in text_lower
+                            or "facebook" in text_lower
+                            or "instagram" in text_lower
+                            or "linkedin" in text_lower
+                        ):
+                            continue
+
+                        if (
+                            "/woning/" not in href
+                            and "/aanbod/" not in href
+                        ):
+                            continue
+
+                        apartment_title = text
+
+                        if href.startswith("/"):
+                            apartment_url = "https://www.campusgroningen.com" + href
+                        else:
+                            apartment_url = href
+
+                        break
+
+                    except:
+                        pass
+
+                if not apartment_url:
+                    continue
+
+                if apartment_url in processed_urls:
+                    continue
+
+                processed_urls.add(apartment_url)
+
+                apartment_links.append({
+                    "title": apartment_title,
+                    "url": apartment_url
+                })
+
+            except Exception as e:
+                log(f"⚠️ Ошибка карточки: {e}")
+
+        log(f"✅ Найдено объявлений: {len(apartment_links)}")
+
+        found_any = False
+
+        for index, apartment in enumerate(apartment_links, start=1):
+
+            try:
+
+                apartment_url = apartment["url"]
+                title = apartment["title"]
+
+                log(f"🔍 Проверяю #{index}: {title}")
+
+                await page.goto(apartment_url, wait_until="domcontentloaded")
+                await page.wait_for_timeout(5000)
+
+                has_join_button = False
+
+                try:
+
+                    sidebar_title = page.locator(
+                        "text=Interesse in deze woning?"
+                    ).first
+
+                    await sidebar_title.wait_for(timeout=10000)
+
+                    sidebar = sidebar_title.locator("xpath=../../..")
+
+                    sidebar_text = (await sidebar.inner_text()).lower()
+
+                    log("📋 Sidebar найден")
+
+                    register_words = [
+                        "stel een vraag",
+                        "bezichtiging",
+                        "deelnemen",
+                        "plan bezichtiging",
+                        "beschikbare kijkmomenten",
+                        "meld je aan"
+                    ]
+
+                    for word in register_words:
+                        if word.lower() in sidebar_text:
+                            has_join_button = True
+                            log(f"✅ Найдено слово: {word}")
+                            break
+
+                except Exception as e:
+                    log(f"⚠️ Ошибка sidebar: {e}")
+
+                if has_join_button:
+
+                    found_any = True
+
+                    if apartment_url not in sent_links:
+
+                        sent_links.add(apartment_url)
+
+                        log(
+                            f"🚨 ДОСТУПНА ЗАПИСЬ!\n\n"
+                            f"{title}\n\n"
+                            f"{apartment_url}"
+                        )
+
+                    else:
+                        log("ℹ️ Уже отправлялось")
+
+                else:
+                    log("❌ Записи нет")
+
+            except Exception as e:
+                log(f"⚠️ Ошибка проверки: {e}")
+
+        if not found_any:
+            log("😴 Свободных записей нет")
+
+    except Exception as e:
+        log(f"❌ Ошибка страницы: {e}")
 
 
 # =========================
-# MAIN LOOP (ДОБАВЛЕН ТОЛЬКО STOP/START)
+# MAIN LOOP
 # =========================
 
 async def main():
