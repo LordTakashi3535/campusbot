@@ -27,7 +27,7 @@ sent_links = set()
 
 BOT_STATE = {
     "running": False,
-    "action": "Ожидание..."
+    "action": "Oczekiwanie..."
 }
 
 STATUS_MESSAGE_ID = None
@@ -36,7 +36,7 @@ _last_update = 0
 
 
 # =========================
-# ALERT
+# ALERT TELEGRAM
 # =========================
 
 def send_telegram_alert(text):
@@ -60,20 +60,20 @@ def send_telegram_alert(text):
 def get_keyboard():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("▶️ Запуск", callback_data="start"),
-            InlineKeyboardButton("⏹ Стоп", callback_data="stop")
+            InlineKeyboardButton("▶️ Start", callback_data="start"),
+            InlineKeyboardButton("⏹ Stop", callback_data="stop")
         ]
     ])
 
 
 def get_status_text():
 
-    status = "🟢 ВКЛЮЧЕН" if BOT_STATE["running"] else "🔴 ВЫКЛЮЧЕН"
+    status = "🟢 WŁĄCZONY" if BOT_STATE["running"] else "🔴 WYŁĄCZONY"
 
     return (
         "🤖 Campus Bot\n\n"
-        f"Статус: {status}\n"
-        f"📍 Действие:\n{BOT_STATE['action']}"
+        f"{status}\n"
+        f"📍 Status:\n{BOT_STATE['action']}"
     )
 
 
@@ -131,11 +131,11 @@ def button_handler(update, context):
 
     if query.data == "start":
         BOT_STATE["running"] = True
-        BOT_STATE["action"] = "▶️ Запущен"
+        BOT_STATE["action"] = "▶️ Start"
 
     elif query.data == "stop":
         BOT_STATE["running"] = False
-        BOT_STATE["action"] = "⏹ Остановлен"
+        BOT_STATE["action"] = "⏹ Stop"
 
     query.edit_message_text(
         text=get_status_text(),
@@ -158,12 +158,12 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (логика НЕ менялась)
+# LOGIN (bez zmian logiki)
 # =========================
 
 async def login(page):
 
-    set_action("🌐 Открываю сайт...")
+    set_action("🌐 Otwieram stronę...")
 
     await page.goto(
         "https://www.campusgroningen.com",
@@ -174,38 +174,38 @@ async def login(page):
     await page.wait_for_timeout(4000)
 
     if "uitloggen" in (await page.content()).lower():
-        set_action("✅ Уже авторизован")
+        set_action("✅ Już zalogowany")
         return True
 
-    set_action("🔐 Нажимаю Inloggen")
+    set_action("🔐 Klikam Inloggen")
 
     login_button = page.locator("text=Inloggen")
 
     if await login_button.count() == 0:
-        set_action("❌ Кнопка логина не найдена")
+        set_action("❌ Nie znaleziono przycisku logowania")
         return False
 
     await login_button.first.click(force=True)
     await page.wait_for_timeout(2000)
 
-    set_action("📧 Ввожу email")
+    set_action("📧 Wpisuję email")
     await page.locator('input[type="email"]').first.fill(EMAIL)
 
-    set_action("🔑 Ввожу пароль")
+    set_action("🔑 Wpisuję hasło")
     await page.locator('input[type="password"]').first.fill(PASSWORD)
 
-    set_action("⌨️ Отправка формы")
+    set_action("⌨️ Wysyłam formularz")
 
     await page.locator('input[type="password"]').first.press("Enter")
     await page.wait_for_timeout(8000)
 
-    set_action("✅ Авторизация завершена")
+    set_action("✅ Logowanie zakończone")
 
     return True
 
 
 # =========================
-# CHECK (твоя логика НЕ тронута)
+# CHECK (logika bez zmian)
 # =========================
 
 async def check_apartments(page):
@@ -222,7 +222,7 @@ async def check_apartments(page):
     cards = page.locator(".row")
     count = await cards.count()
 
-    set_action(f"📦 Найдено блоков: {count}")
+    set_action(f"📦 Znaleziono sekcji: {count}")
 
     apartments = []
 
@@ -258,7 +258,7 @@ async def check_apartments(page):
         if not BOT_STATE["running"]:
             return
 
-        set_action(f"🏠 Проверяю {i}/{len(apartments)}\n{apt['title']}")
+        set_action(f"🏠 Sprawdzam {i}/{len(apartments)}\n{apt['title']}")
 
         await page.goto(apt["url"])
         await page.wait_for_timeout(4000)
@@ -295,13 +295,11 @@ async def check_apartments(page):
 
             sent_links.add(apt["url"])
 
-            set_action(f"🚨 НАЙДЕНО!\n{apt['title']}\n🔤 {matched}")
-
             send_telegram_alert(
-                "🚨 Найдена регистрация!\n\n"
+                "🚨 Dostępna rejestracja na oglądanie!\n\n"
                 f"🏠 {apt['title']}\n"
                 f"🔗 {apt['url']}\n"
-                f"🔤 {matched}"
+                f"🔤 Słowo: {matched}"
             )
 
 
@@ -318,7 +316,7 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        set_action("⏳ Ожидание запуска...")
+        set_action("⏳ Oczekiwanie na start...")
 
         while True:
 
