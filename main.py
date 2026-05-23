@@ -31,11 +31,30 @@ BOT_STATE = {
 }
 
 STATUS_MESSAGE_ID = None
+updater = None
 _last_update = 0
 
 
 # =========================
-# UI UPDATE ENGINE
+# ALERT
+# =========================
+
+def send_telegram_alert(text):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text
+            },
+            timeout=10
+        )
+    except:
+        pass
+
+
+# =========================
+# UI
 # =========================
 
 def get_keyboard():
@@ -58,25 +77,28 @@ def get_status_text():
     )
 
 
-def set_action(context, text):
+# =========================
+# SAFE UI UPDATE
+# =========================
 
-    global _last_update, STATUS_MESSAGE_ID
+def set_action(text):
+
+    global _last_update, updater, STATUS_MESSAGE_ID
 
     BOT_STATE["action"] = text
 
     now = time.time()
 
-    # защита от флуд-апдейтов
-    if now - _last_update < 1.5:
+    if now - _last_update < 1.2:
         return
 
     _last_update = now
 
-    if not STATUS_MESSAGE_ID:
+    if not updater or not STATUS_MESSAGE_ID:
         return
 
     try:
-        context.bot.edit_message_text(
+        updater.bot.edit_message_text(
             chat_id=TELEGRAM_CHAT_ID,
             message_id=STATUS_MESSAGE_ID,
             text=get_status_text(),
@@ -87,7 +109,7 @@ def set_action(context, text):
 
 
 # =========================
-# TELEGRAM
+# TELEGRAM UI
 # =========================
 
 def start_command(update, context):
@@ -123,6 +145,8 @@ def button_handler(update, context):
 
 def start_telegram_bot():
 
+    global updater
+
     updater = Updater(TELEGRAM_TOKEN, use_context=True)
 
     dp = updater.dispatcher
@@ -134,55 +158,59 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (лог как ты хотел)
+# LOGIN (логика НЕ менялась)
 # =========================
 
-async def login(page, context):
+async def login(page):
 
-    set_action(context, "🌐 Открываю сайт...")
+    set_action("🌐 Открываю сайт...")
 
-    await page.goto("https://www.campusgroningen.com", wait_until="domcontentloaded")
+    await page.goto(
+        "https://www.campusgroningen.com",
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
 
-    set_action(context, "🍪 Проверяю cookies / страницу")
-
-    await page.wait_for_timeout(2000)
+    await page.wait_for_timeout(4000)
 
     if "uitloggen" in (await page.content()).lower():
-        set_action(context, "✅ Уже авторизован")
+        set_action("✅ Уже авторизован")
         return True
 
-    set_action(context, "🔐 Нажимаю Inloggen")
+    set_action("🔐 Нажимаю Inloggen")
 
     login_button = page.locator("text=Inloggen")
 
     if await login_button.count() == 0:
-        set_action(context, "❌ Кнопка логина не найдена")
+        set_action("❌ Кнопка логина не найдена")
         return False
 
     await login_button.first.click(force=True)
     await page.wait_for_timeout(2000)
 
-    set_action(context, "📧 Ввожу email")
+    set_action("📧 Ввожу email")
     await page.locator('input[type="email"]').first.fill(EMAIL)
 
-    set_action(context, "🔑 Ввожу пароль")
+    set_action("🔑 Ввожу пароль")
     await page.locator('input[type="password"]').first.fill(PASSWORD)
 
-    set_action(context, "⌨️ Отправляю форму")
+    set_action("⌨️ Отправка формы")
 
     await page.locator('input[type="password"]').first.press("Enter")
     await page.wait_for_timeout(8000)
 
-    set_action(context, "✅ Авторизация завершена")
+    set_action("✅ Авторизация завершена")
 
     return True
 
 
 # =========================
-# CHECK
+# CHECK (твоя логика НЕ тронута)
 # =========================
 
-async def check_apartments(page, context):
+async def check_apartments(page):
+
+    global sent_links
 
     await page.goto(
         "https://www.campusgroningen.com/dashboard/mijn-favorieten",
@@ -194,7 +222,7 @@ async def check_apartments(page, context):
     cards = page.locator(".row")
     count = await cards.count()
 
-    set_action(context, f"📦 Найдено блоков: {count}")
+    set_action(f"📦 Найдено блоков: {count}")
 
     apartments = []
 
@@ -230,18 +258,17 @@ async def check_apartments(page, context):
         if not BOT_STATE["running"]:
             return
 
-        set_action(context, f"🏠 Проверяю {i}/{len(apartments)}\n{apt['title']}")
+        set_action(f"🏠 Проверяю {i}/{len(apartments)}\n{apt['title']}")
 
         await page.goto(apt["url"])
         await page.wait_for_timeout(4000)
 
         sidebar = page.locator("text=Interesse in deze woning?").first
 
-        matched = None
         found = False
+        matched = None
 
         try:
-
             await sidebar.wait_for(timeout=8000)
 
             text = (await sidebar.locator("xpath=../../..").inner_text()).lower()
@@ -264,15 +291,22 @@ async def check_apartments(page, context):
         except:
             pass
 
-        if found:
+        if found and apt["url"] not in sent_links:
 
-            set_action(context, f"🚨 НАЙДЕНО!\n{apt['title']}\n🔤 {matched}")
+            sent_links.add(apt["url"])
 
-        await asyncio.sleep(0)
+            set_action(f"🚨 НАЙДЕНО!\n{apt['title']}\n🔤 {matched}")
+
+            send_telegram_alert(
+                "🚨 Найдена регистрация!\n\n"
+                f"🏠 {apt['title']}\n"
+                f"🔗 {apt['url']}\n"
+                f"🔤 {matched}"
+            )
 
 
 # =========================
-# MAIN
+# MAIN LOOP
 # =========================
 
 async def main():
@@ -284,16 +318,18 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
+        set_action("⏳ Ожидание запуска...")
+
         while True:
 
             if not BOT_STATE["running"]:
                 await asyncio.sleep(1)
                 continue
 
-            ok = await login(page, None)
+            ok = await login(page)
 
             if ok:
-                await check_apartments(page, None)
+                await check_apartments(page)
 
             await asyncio.sleep(CHECK_INTERVAL)
 
