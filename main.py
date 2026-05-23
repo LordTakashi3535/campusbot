@@ -22,7 +22,7 @@ CHECK_INTERVAL = 60
 sent_links = set()
 
 # =========================
-# STATE (THREAD SAFE)
+# STATE
 # =========================
 
 BOT_STATE = {
@@ -30,30 +30,12 @@ BOT_STATE = {
     "action": "Oczekiwanie..."
 }
 
-run_event = threading.Event()
-
 STATUS_MESSAGE_ID = None
-updater = None
 lock = threading.Lock()
 
 
 # =========================
-# ALERT
-# =========================
-
-def send_telegram_alert(text):
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": text},
-            timeout=10
-        )
-    except:
-        pass
-
-
-# =========================
-# UI
+# TELEGRAM UI HELPERS
 # =========================
 
 def get_keyboard():
@@ -75,36 +57,81 @@ def get_status_text():
     )
 
 
+# =========================
+# SAFE TELEGRAM REQUEST
+# =========================
+
+def tg_send_or_edit(text, keyboard=True):
+    global STATUS_MESSAGE_ID
+
+    try:
+        if STATUS_MESSAGE_ID is None:
+
+            r = requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                json={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "text": text,
+                    "reply_markup": get_keyboard().to_dict() if keyboard else None
+                }
+            )
+
+            STATUS_MESSAGE_ID = r.json()["result"]["message_id"]
+
+        else:
+
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText",
+                json={
+                    "chat_id": TELEGRAM_CHAT_ID,
+                    "message_id": STATUS_MESSAGE_ID,
+                    "text": text,
+                    "reply_markup": get_keyboard().to_dict() if keyboard else None
+                }
+            )
+
+    except:
+        pass
+
+
+# =========================
+# STATUS UPDATE (FIXED)
+# =========================
+
 def set_action(text):
+
     with lock:
         BOT_STATE["action"] = text
 
-    if updater and STATUS_MESSAGE_ID:
-        try:
-            updater.bot.edit_message_text(
-                chat_id=TELEGRAM_CHAT_ID,
-                message_id=STATUS_MESSAGE_ID,
-                text=get_status_text(),
-                reply_markup=get_keyboard()
-            )
-        except:
-            pass
+    tg_send_or_edit(get_status_text())
 
 
 # =========================
-# TELEGRAM
+# ALERTS
+# =========================
+
+def send_telegram_alert(text):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text
+            }
+        )
+    except:
+        pass
+
+
+# =========================
+# TELEGRAM BOT (BUTTONS ONLY)
 # =========================
 
 def start_command(update: Update, context):
-
-    global STATUS_MESSAGE_ID
-
-    msg = update.message.reply_text(
+    update.message.reply_text(
         get_status_text(),
         reply_markup=get_keyboard()
     )
-
-    STATUS_MESSAGE_ID = msg.message_id
 
 
 def button_handler(update: Update, context):
@@ -113,30 +140,15 @@ def button_handler(update: Update, context):
     query.answer()
 
     if query.data == "start":
-
-        with lock:
-            BOT_STATE["running"] = True
-            BOT_STATE["action"] = "▶️ Uruchomiony"
-
-        run_event.set()
+        BOT_STATE["running"] = True
+        set_action("▶️ Uruchomiony")
 
     elif query.data == "stop":
-
-        with lock:
-            BOT_STATE["running"] = False
-            BOT_STATE["action"] = "⏹ Zatrzymany"
-
-        run_event.clear()
-
-    query.edit_message_text(
-        text=get_status_text(),
-        reply_markup=get_keyboard()
-    )
+        BOT_STATE["running"] = False
+        set_action("⏹ Zatrzymany")
 
 
 def start_telegram_bot():
-
-    global updater
 
     updater = Updater(TELEGRAM_TOKEN, use_context=True)
 
@@ -149,7 +161,7 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (без изменений логики)
+# LOGIN (НЕ МЕНЯЛ)
 # =========================
 
 async def login(page):
@@ -180,7 +192,7 @@ async def login(page):
 
 
 # =========================
-# CHECK (логика НЕ тронута)
+# CHECK (НЕ ТРОГАЛ ЛОГИКУ)
 # =========================
 
 async def check_apartments(page):
@@ -228,7 +240,7 @@ async def check_apartments(page):
 
     for i, apt in enumerate(apartments, start=1):
 
-        if not run_event.is_set():
+        if not BOT_STATE["running"]:
             return
 
         set_action(f"🏠 {i}/{len(apartments)}\n{apt['title']}")
@@ -272,7 +284,7 @@ async def check_apartments(page):
                 "🚨 Dostępna rejestracja!\n\n"
                 f"🏠 {apt['title']}\n"
                 f"🔗 {apt['url']}\n"
-                f"🔤 {matched}"
+                f"🔤 Słowo: {matched}"
             )
 
 
@@ -293,12 +305,16 @@ async def main():
 
         while True:
 
-            run_event.wait()
+            if not BOT_STATE["running"]:
+                await asyncio.sleep(1)
+                continue
 
-            await login(page)
-            await check_apartments(page)
+            ok = await login(page)
 
-            set_action("😴 Oczekiwanie 300s")
+            if ok:
+                await check_apartments(page)
+
+            set_action(f"😴 Oczekiwanie {CHECK_INTERVAL}s")
 
             await asyncio.sleep(CHECK_INTERVAL)
 
