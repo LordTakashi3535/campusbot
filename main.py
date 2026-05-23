@@ -381,19 +381,25 @@ async def check_apartments(page):
                 await page.wait_for_timeout(5000)
 
                 # ==========================================
-                # ИЩЕМ ТОЧНЫЙ SIDEBAR
+                # ИЩЕМ ПОЛНЫЙ SIDEBAR
                 # ==========================================
 
                 has_join_button = False
 
                 try:
 
-                    sidebar = page.locator(
-                        ".contactBar"
+                    # Заголовок sidebar
+                    sidebar_title = page.locator(
+                        "text=Interesse in deze woning?"
                     ).first
 
-                    await sidebar.wait_for(
+                    await sidebar_title.wait_for(
                         timeout=10000
+                    )
+
+                    # Поднимаемся к полному контейнеру
+                    sidebar = sidebar_title.locator(
+                        "xpath=../../.."
                     )
 
                     sidebar_text = (
@@ -408,12 +414,15 @@ async def check_apartments(page):
                     )
 
                     # ==========================================
-                    # ТЕСТОВЫЕ КЛЮЧЕВЫЕ СЛОВА
+                    # ИЩЕМ КНОПКУ ЗАПИСИ
                     # ==========================================
 
                     register_words = [
 
+                        # ТЕСТ
                         "stel een vraag",
+
+                        # Реальные слова
                         "bezichtiging",
                         "deelnemen",
                         "plan bezichtiging",
