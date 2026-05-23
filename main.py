@@ -23,7 +23,10 @@ CHECK_INTERVAL = 300
 
 users = set()
 
-# chat_id -> message_id
+# Только владелец получает debug/log
+OWNER_CHAT_ID = None
+
+# chat_id -> status_message_id
 STATUS_MESSAGES = {}
 
 # =========================
@@ -85,7 +88,7 @@ def get_status_text():
 
 
 # =========================
-# ALERT
+# ALERTS
 # =========================
 
 def send_telegram_alert(text):
@@ -100,12 +103,37 @@ def send_telegram_alert(text):
 
                 json={
                     "chat_id": chat_id,
-                    "text": text
+                    "text": text,
+                    "disable_web_page_preview": True
                 }
             )
 
         except:
             pass
+
+
+def send_log_message(text):
+
+    global OWNER_CHAT_ID
+
+    if not OWNER_CHAT_ID:
+        return
+
+    try:
+
+        requests.post(
+            f"https://api.telegram.org/bot"
+            f"{TELEGRAM_TOKEN}/sendMessage",
+
+            json={
+                "chat_id": OWNER_CHAT_ID,
+                "text": text,
+                "disable_web_page_preview": True
+            }
+        )
+
+    except:
+        pass
 
 
 # =========================
@@ -185,9 +213,15 @@ async def reset_browser():
 
 def start_command(update: Update, context):
 
+    global OWNER_CHAT_ID
+
     chat_id = update.effective_chat.id
 
     users.add(chat_id)
+
+    # Первый пользователь = владелец
+    if OWNER_CHAT_ID is None:
+        OWNER_CHAT_ID = chat_id
 
     msg = update.message.reply_text(
         get_status_text(),
@@ -410,6 +444,7 @@ async def check_apartments():
 
         found = False
         matched = None
+        text = ""
 
         try:
 
@@ -442,6 +477,34 @@ async def check_apartments():
 
         except:
             pass
+
+        # =========================
+        # LOG SIDEBAR
+        # =========================
+
+        preview = (
+            text[:1200]
+            if text
+            else "BRAK TEKSTU"
+        )
+
+        log_message = (
+            "📋 LOG MIESZKANIA\n\n"
+            f"🏠 {apt['title']}\n\n"
+            f"🔗 {apt['url']}\n\n"
+            f"🔍 FOUND: {found}\n"
+            f"🔤 MATCHED: {matched}\n\n"
+            "====================\n"
+            "SIDEBAR:\n"
+            "====================\n\n"
+            f"{preview}"
+        )
+
+        send_log_message(log_message)
+
+        # =========================
+        # ALERT
+        # =========================
 
         if found:
 
@@ -544,6 +607,10 @@ async def main():
 
             set_action(
                 f"❌ Błąd: {str(e)}"
+            )
+
+            send_log_message(
+                f"❌ ERROR:\n\n{str(e)}"
             )
 
             await reset_browser()
