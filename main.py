@@ -417,7 +417,9 @@ async def check_apartments(page):
                         "deelnemen",
                         "plan bezichtiging",
                         "beschikbare kijkmomenten",
-                        "meld je aan"
+                        "meld je aan",
+                        "Stel een vraag"
+                        
 
                     ]
 
