@@ -17,7 +17,7 @@ PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 300
 
 sent_links = set()
 
@@ -333,7 +333,7 @@ async def main():
                 set_action("🔎 Sprawdzanie mieszkań...")
                 await check_apartments(page)
 
-            set_action(f"😴 Oczekiwanie {CHECK_INTERVAL}s na kolejną проверkę")
+            set_action(f"😴 Oczekiwanie {CHECK_INTERVAL}s")
 
             await asyncio.sleep(CHECK_INTERVAL)
 
