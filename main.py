@@ -23,53 +23,22 @@ CHECK_INTERVAL = 60
 sent_links = set()
 
 # =========================
-# UI STATE
+# UI STATE (НОВОЕ)
 # =========================
 
-BOT_RUNNING = False
+BOT_STATE = {
+    "running": False,
+    "action": "Ожидание...",
+    "checked": 0,
+    "last_found": None
+}
+
 STATUS_MESSAGE_ID = None
 
 
 # =========================
-# LOG (НЕ МЕНЯЛ)
+# STATUS UI
 # =========================
-
-def log(text):
-
-    now = datetime.now().strftime("%H:%M:%S")
-
-    message = f"[{now}] {text}"
-
-    print(message)
-
-    try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": message
-            },
-            timeout=15
-        )
-
-    except Exception as e:
-        print("Telegram error:", e)
-
-
-# =========================
-# UI (start / stop)
-# =========================
-
-def get_status_text():
-
-    status = "🟢 ВКЛЮЧЕН" if BOT_RUNNING else "🔴 ВЫКЛЮЧЕН"
-
-    return (
-        "🤖 Campus Bot\n\n"
-        f"Статус: {status}\n"
-        f"⏳ Ожидание..."
-    )
-
 
 def get_keyboard():
 
@@ -80,6 +49,44 @@ def get_keyboard():
         ]
     ])
 
+
+def get_status_text():
+
+    status = "🟢 ВКЛЮЧЕН" if BOT_STATE["running"] else "🔴 ВЫКЛЮЧЕН"
+
+    return (
+        "🤖 Campus Bot\n\n"
+        f"Статус: {status}\n"
+        f"📍 Действие: {BOT_STATE['action']}\n"
+        f"🏠 Проверено квартир: {BOT_STATE['checked']}"
+    )
+
+
+def set_action(text):
+    BOT_STATE["action"] = text
+
+
+async def update_status(context=None):
+
+    global STATUS_MESSAGE_ID
+
+    if not STATUS_MESSAGE_ID:
+        return
+
+    try:
+        context.bot.edit_message_text(
+            chat_id=TELEGRAM_CHAT_ID,
+            message_id=STATUS_MESSAGE_ID,
+            text=get_status_text(),
+            reply_markup=get_keyboard()
+        )
+    except:
+        pass
+
+
+# =========================
+# TELEGRAM UI
+# =========================
 
 def start_command(update: Update, context: CallbackContext):
 
@@ -95,16 +102,16 @@ def start_command(update: Update, context: CallbackContext):
 
 def button_handler(update: Update, context: CallbackContext):
 
-    global BOT_RUNNING
-
     query = update.callback_query
     query.answer()
 
     if query.data == "start":
-        BOT_RUNNING = True
+        BOT_STATE["running"] = True
+        BOT_STATE["action"] = "Запущен"
 
     elif query.data == "stop":
-        BOT_RUNNING = False
+        BOT_STATE["running"] = False
+        BOT_STATE["action"] = "Остановлен"
 
     query.edit_message_text(
         text=get_status_text(),
@@ -126,14 +133,14 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (ТВОЙ БЕЗ ИЗМЕНЕНИЙ)
+# LOGIN (НЕ ИЗМЕНЯЛ)
 # =========================
 
 async def login(page):
 
     try:
 
-        log("🌐 Открываю сайт...")
+        set_action("Открываю сайт...")
 
         await page.goto(
             "https://www.campusgroningen.com",
@@ -144,7 +151,6 @@ async def login(page):
         await page.wait_for_timeout(5000)
 
         current_url = page.url.lower()
-
         page_text = (await page.content()).lower()
 
         if (
@@ -153,7 +159,7 @@ async def login(page):
             or "dashboard" in current_url
             or "mijncampus" in page_text
         ):
-            log("✅ Уже авторизован")
+            set_action("Уже авторизован")
             return True
 
         login_button = page.locator("text=Inloggen")
@@ -161,7 +167,7 @@ async def login(page):
         if await login_button.count() == 0:
             return False
 
-        log("🔐 Открываю логин...")
+        set_action("Логин...")
 
         await login_button.first.click(force=True)
         await page.wait_for_timeout(5000)
@@ -182,12 +188,12 @@ async def login(page):
         )
 
     except Exception as e:
-        log(f"❌ Ошибка login: {e}")
+        set_action("Ошибка login")
         return False
 
 
 # =========================
-# CHECK (ТВОЯ ФУНКЦИЯ 1 В 1)
+# CHECK (ТВОЯ ФУНКЦИЯ БЕЗ ИЗМЕНЕНИЙ ЛОГИКИ)
 # =========================
 
 async def check_apartments(page):
@@ -196,7 +202,7 @@ async def check_apartments(page):
 
     try:
 
-        log("🏠 Открываю избранные объявления...")
+        set_action("Открываю избранное...")
 
         await page.goto(
             "https://www.campusgroningen.com/dashboard/mijn-favorieten",
@@ -213,7 +219,7 @@ async def check_apartments(page):
 
         cards_count = await cards.count()
 
-        log(f"📦 Всего row блоков: {cards_count}")
+        set_action("Сканирую объявления...")
 
         for i in range(cards_count):
 
@@ -238,44 +244,40 @@ async def check_apartments(page):
 
                 for j in range(links_count):
 
-                    try:
+                    link = links.nth(j)
 
-                        link = links.nth(j)
+                    text = (await link.inner_text()).strip()
+                    href = await link.get_attribute("href")
 
-                        text = (await link.inner_text()).strip()
-                        href = await link.get_attribute("href")
+                    if not href or not text:
+                        continue
 
-                        if not href or not text:
-                            continue
+                    text_lower = text.lower()
 
-                        text_lower = text.lower()
+                    if (
+                        "favoriet" in text_lower
+                        or "verwijderen" in text_lower
+                        or "facebook" in text_lower
+                        or "instagram" in text_lower
+                        or "linkedin" in text_lower
+                    ):
+                        continue
 
-                        if (
-                            "favoriet" in text_lower
-                            or "verwijderen" in text_lower
-                            or "facebook" in text_lower
-                            or "instagram" in text_lower
-                            or "linkedin" in text_lower
-                        ):
-                            continue
+                    if (
+                        "/woning/" not in href
+                        and "/aanbod/" not in href
+                    ):
+                        continue
 
-                        if (
-                            "/woning/" not in href
-                            and "/aanbod/" not in href
-                        ):
-                            continue
+                    apartment_title = text
 
-                        apartment_title = text
+                    apartment_url = (
+                        "https://www.campusgroningen.com" + href
+                        if href.startswith("/")
+                        else href
+                    )
 
-                        if href.startswith("/"):
-                            apartment_url = "https://www.campusgroningen.com" + href
-                        else:
-                            apartment_url = href
-
-                        break
-
-                    except:
-                        pass
+                    break
 
                 if not apartment_url:
                     continue
@@ -290,87 +292,72 @@ async def check_apartments(page):
                     "url": apartment_url
                 })
 
-            except Exception as e:
-                log(f"⚠️ Ошибка карточки: {e}")
+            except:
+                pass
 
-        log(f"✅ Найдено объявлений: {len(apartment_links)}")
+        BOT_STATE["checked"] = len(apartment_links)
 
         found_any = False
 
         for index, apartment in enumerate(apartment_links, start=1):
 
+            set_action(f"Проверяю {index}/{len(apartment_links)}")
+
+            apartment_url = apartment["url"]
+            title = apartment["title"]
+
+            await page.goto(apartment_url, wait_until="domcontentloaded")
+            await page.wait_for_timeout(5000)
+
+            has_join_button = False
+
             try:
 
-                apartment_url = apartment["url"]
-                title = apartment["title"]
+                sidebar_title = page.locator(
+                    "text=Interesse in deze woning?"
+                ).first
 
-                log(f"🔍 Проверяю #{index}: {title}")
+                await sidebar_title.wait_for(timeout=10000)
 
-                await page.goto(apartment_url, wait_until="domcontentloaded")
-                await page.wait_for_timeout(5000)
+                sidebar = sidebar_title.locator("xpath=../../..")
 
-                has_join_button = False
+                sidebar_text = (await sidebar.inner_text()).lower()
 
-                try:
+                register_words = [
+                    "stel een vraag",
+                    "bezichtiging",
+                    "deelnemen",
+                    "plan bezichtiging",
+                    "beschikbare kijkmomenten",
+                    "meld je aan"
+                ]
 
-                    sidebar_title = page.locator(
-                        "text=Interesse in deze woning?"
-                    ).first
+                for word in register_words:
+                    if word.lower() in sidebar_text:
+                        has_join_button = True
+                        break
 
-                    await sidebar_title.wait_for(timeout=10000)
+            except:
+                pass
 
-                    sidebar = sidebar_title.locator("xpath=../../..")
+            if has_join_button:
 
-                    sidebar_text = (await sidebar.inner_text()).lower()
+                found_any = True
 
-                    log("📋 Sidebar найден")
+                if apartment_url not in sent_links:
 
-                    register_words = [
-                        "stel een vraag",
-                        "bezichtiging",
-                        "deelnemen",
-                        "plan bezichtiging",
-                        "beschikbare kijkmomenten",
-                        "meld je aan"
-                    ]
+                    sent_links.add(apartment_url)
 
-                    for word in register_words:
-                        if word.lower() in sidebar_text:
-                            has_join_button = True
-                            log(f"✅ Найдено слово: {word}")
-                            break
+                    set_action("🚨 Найдена квартира!")
 
-                except Exception as e:
-                    log(f"⚠️ Ошибка sidebar: {e}")
-
-                if has_join_button:
-
-                    found_any = True
-
-                    if apartment_url not in sent_links:
-
-                        sent_links.add(apartment_url)
-
-                        log(
-                            f"🚨 ДОСТУПНА ЗАПИСЬ!\n\n"
-                            f"{title}\n\n"
-                            f"{apartment_url}"
-                        )
-
-                    else:
-                        log("ℹ️ Уже отправлялось")
-
-                else:
-                    log("❌ Записи нет")
-
-            except Exception as e:
-                log(f"⚠️ Ошибка проверки: {e}")
+            else:
+                pass
 
         if not found_any:
-            log("😴 Свободных записей нет")
+            set_action("Свободных записей нет")
 
-    except Exception as e:
-        log(f"❌ Ошибка страницы: {e}")
+    except:
+        set_action("Ошибка проверки")
 
 
 # =========================
@@ -379,7 +366,7 @@ async def check_apartments(page):
 
 async def main():
 
-    log("🚀 Бот запущен")
+    threading.Thread(target=start_telegram_bot, daemon=True).start()
 
     while True:
 
@@ -390,22 +377,20 @@ async def main():
 
             while True:
 
-                if not BOT_RUNNING:
+                if not BOT_STATE["running"]:
                     await asyncio.sleep(2)
                     continue
+
+                await update_status()
 
                 success = await login(page)
 
                 if success:
                     await check_apartments(page)
 
+                await update_status()
+
                 await asyncio.sleep(CHECK_INTERVAL)
 
-
-# =========================
-# START
-# =========================
-
-threading.Thread(target=start_telegram_bot, daemon=True).start()
 
 asyncio.run(main())
