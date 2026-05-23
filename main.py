@@ -15,14 +15,19 @@ load_dotenv()
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-users = set(chat_id)
 
 CHECK_INTERVAL = 60
 
 sent_links = set()
 
 # =========================
-# STATE
+# USERS (MULTI USER FIX)
+# =========================
+
+users = set()
+
+# =========================
+# BOT STATE
 # =========================
 
 BOT_STATE = {
@@ -35,7 +40,7 @@ lock = threading.Lock()
 
 
 # =========================
-# TELEGRAM UI HELPERS
+# TELEGRAM UI
 # =========================
 
 def get_keyboard():
@@ -58,44 +63,25 @@ def get_status_text():
 
 
 # =========================
-# SAFE TELEGRAM REQUEST
+# TELEGRAM SEND
 # =========================
 
-def tg_send_or_edit(text, keyboard=True):
-    global STATUS_MESSAGE_ID
-
-    try:
-        if STATUS_MESSAGE_ID is None:
-
-            r = requests.post(
+def send_telegram_alert(text):
+    for chat_id in list(users):
+        try:
+            requests.post(
                 f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
                 json={
-                    "chat_id": TELEGRAM_CHAT_ID,
-                    "text": text,
-                    "reply_markup": get_keyboard().to_dict() if keyboard else None
+                    "chat_id": chat_id,
+                    "text": text
                 }
             )
-
-            STATUS_MESSAGE_ID = r.json()["result"]["message_id"]
-
-        else:
-
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText",
-                json={
-                    "chat_id": TELEGRAM_CHAT_ID,
-                    "message_id": STATUS_MESSAGE_ID,
-                    "text": text,
-                    "reply_markup": get_keyboard().to_dict() if keyboard else None
-                }
-            )
-
-    except:
-        pass
+        except:
+            pass
 
 
 # =========================
-# STATUS UPDATE (FIXED)
+# STATUS UPDATE
 # =========================
 
 def set_action(text):
@@ -103,35 +89,37 @@ def set_action(text):
     with lock:
         BOT_STATE["action"] = text
 
-    tg_send_or_edit(get_status_text())
-
-
-# =========================
-# ALERTS
-# =========================
-
-def send_telegram_alert(text):
     try:
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text
-            }
-        )
+        if STATUS_MESSAGE_ID:
+            requests.post(
+                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText",
+                json={
+                    "chat_id": list(users)[0] if users else None,
+                    "message_id": STATUS_MESSAGE_ID,
+                    "text": get_status_text(),
+                    "reply_markup": get_keyboard().to_dict()
+                }
+            )
     except:
         pass
 
 
 # =========================
-# TELEGRAM BOT (BUTTONS ONLY)
+# TELEGRAM HANDLERS
 # =========================
 
 def start_command(update: Update, context):
-    update.message.reply_text(
+    chat_id = update.effective_chat.id
+
+    users.add(chat_id)
+
+    msg = update.message.reply_text(
         get_status_text(),
         reply_markup=get_keyboard()
     )
+
+    global STATUS_MESSAGE_ID
+    STATUS_MESSAGE_ID = msg.message_id
 
 
 def button_handler(update: Update, context):
@@ -147,6 +135,11 @@ def button_handler(update: Update, context):
         BOT_STATE["running"] = False
         set_action("⏹ Zatrzymany")
 
+    query.edit_message_text(
+        text=get_status_text(),
+        reply_markup=get_keyboard()
+    )
+
 
 def start_telegram_bot():
 
@@ -161,7 +154,7 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (НЕ МЕНЯЛ)
+# LOGIN (BEZ ZMIAN)
 # =========================
 
 async def login(page):
@@ -192,7 +185,7 @@ async def login(page):
 
 
 # =========================
-# CHECK (НЕ ТРОГАЛ ЛОГИКУ)
+# CHECK (ЛОГИКА НЕ ТРОНУТА)
 # =========================
 
 async def check_apartments(page):
