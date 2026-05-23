@@ -36,6 +36,9 @@ BOT_STATE = {
 STATUS_MESSAGE_ID = None
 lock = threading.Lock()
 
+browser = None
+page = None
+
 
 # =========================
 # UI
@@ -61,7 +64,7 @@ def get_status_text():
 
 
 # =========================
-# ALERT (ALWAYS SEND)
+# ALERT
 # =========================
 
 def send_telegram_alert(text):
@@ -79,7 +82,7 @@ def send_telegram_alert(text):
 
 
 # =========================
-# STATUS UPDATE (FIXED)
+# STATUS UPDATE
 # =========================
 
 def set_action(text):
@@ -107,14 +110,40 @@ def set_action(text):
 
 
 # =========================
-# TELEGRAM HANDLERS
+# RESET BROWSER (IMPORTANT FIX)
+# =========================
+
+async def reset_browser():
+    global browser, page
+
+    try:
+        if page:
+            await page.close()
+    except:
+        pass
+
+    try:
+        if browser:
+            await browser.close()
+    except:
+        pass
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+    except:
+        pass
+
+
+# =========================
+# TELEGRAM
 # =========================
 
 def start_command(update: Update, context):
     global ADMIN_CHAT_ID, STATUS_MESSAGE_ID
 
     chat_id = update.effective_chat.id
-
     users.add(chat_id)
 
     if ADMIN_CHAT_ID is None:
@@ -133,13 +162,17 @@ def button_handler(update: Update, context):
     query = update.callback_query
     query.answer()
 
+    global BOT_STATE
+
     if query.data == "start":
         BOT_STATE["running"] = True
         set_action("▶️ Uruchomiony")
+        asyncio.create_task(reset_browser())
 
     elif query.data == "stop":
         BOT_STATE["running"] = False
         set_action("⏹ Zatrzymany")
+        asyncio.create_task(reset_browser())
 
     query.edit_message_text(
         text=get_status_text(),
@@ -163,7 +196,9 @@ def start_telegram_bot():
 # LOGIN
 # =========================
 
-async def login(page):
+async def login():
+
+    global page
 
     set_action("🌐 Otwieram stronę...")
 
@@ -191,10 +226,12 @@ async def login(page):
 
 
 # =========================
-# CHECK (ALWAYS NOTIFY)
+# CHECK
 # =========================
 
-async def check_apartments(page):
+async def check_apartments():
+
+    global page
 
     await page.goto(
         "https://www.campusgroningen.com/dashboard/mijn-favorieten",
@@ -273,7 +310,6 @@ async def check_apartments(page):
         except:
             pass
 
-        # 🚨 ALWAYS SEND (NO ANTI-DUPLICATE)
         if found:
 
             send_telegram_alert(
@@ -289,6 +325,8 @@ async def check_apartments(page):
 # =========================
 
 async def main():
+
+    global browser, page
 
     threading.Thread(target=start_telegram_bot, daemon=True).start()
 
@@ -307,10 +345,10 @@ async def main():
                 await asyncio.sleep(1)
                 continue
 
-            ok = await login(page)
+            ok = await login()
 
             if ok:
-                await check_apartments(page)
+                await check_apartments()
 
             set_action(f"😴 Oczekiwanie {CHECK_INTERVAL}s")
 
