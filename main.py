@@ -274,6 +274,7 @@ async def check_apartments(page):
             text = (await sidebar.locator("xpath=../../..").inner_text()).lower()
 
             words = [
+                "stel een vraag",
                 "bezichtiging",
                 "deelnemen",
                 "plan bezichtiging",
