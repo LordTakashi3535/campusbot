@@ -424,7 +424,6 @@ async def check_apartments():
             ).lower()
 
             words = [
-                "stel een vraag",
                 "bezichtiging",
                 "deelnemen",
                 "plan bezichtiging",
