@@ -59,16 +59,29 @@ async def login(page):
 
         current_url = page.url.lower()
 
+        page_text = (
+            await page.content()
+        ).lower()
+
+        # ==========================================
+        # УЖЕ АВТОРИЗОВАН
+        # ==========================================
+
         if (
-            "dashboard" in current_url
-            or "favorieten" in current_url
+            "uitloggen" in page_text
+            or "mijn favorieten" in page_text
+            or "dashboard" in current_url
+            or "mijncampus" in page_text
         ):
 
             log("✅ Уже авторизован")
 
             return True
 
-        # cookies
+        # ==========================================
+        # COOKIES
+        # ==========================================
+
         try:
 
             cookie_button = page.locator(
@@ -88,15 +101,36 @@ async def login(page):
         except:
             pass
 
+        # ==========================================
+        # ОТКРЫВАЕМ ЛОГИН
+        # ==========================================
+
+        login_button = page.locator(
+            "text=Inloggen"
+        )
+
+        login_count = await login_button.count()
+
+        if login_count == 0:
+
+            log(
+                "⚠️ Кнопка логина не найдена"
+            )
+
+            return False
+
         log("🔐 Открываю окно логина...")
 
-        await page.click(
-            "text=Inloggen",
+        await login_button.first.click(
             force=True,
             timeout=30000
         )
 
         await page.wait_for_timeout(5000)
+
+        # ==========================================
+        # EMAIL
+        # ==========================================
 
         log("📧 Ввожу email...")
 
@@ -105,6 +139,10 @@ async def login(page):
         ).first
 
         await email_input.fill(EMAIL)
+
+        # ==========================================
+        # PASSWORD
+        # ==========================================
 
         log("🔑 Ввожу пароль...")
 
@@ -115,6 +153,10 @@ async def login(page):
         await password_input.fill(PASSWORD)
 
         await page.wait_for_timeout(2000)
+
+        # ==========================================
+        # ENTER
+        # ==========================================
 
         log("⌨️ Нажимаю ENTER...")
 
@@ -129,10 +171,12 @@ async def login(page):
         ).lower()
 
         success = (
+
             "uitloggen" in page_text
             or "mijn favorieten" in page_text
             or "dashboard" in current_url
-            or "favorieten" in current_url
+            or "mijncampus" in page_text
+
         )
 
         if success:
@@ -167,7 +211,6 @@ async def login(page):
         log(f"❌ Ошибка логина: {e}")
 
         return False
-
 
 async def check_apartments(page):
 
