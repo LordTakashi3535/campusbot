@@ -15,7 +15,7 @@ EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 300
 
 # =========================
 # USERS
@@ -59,7 +59,7 @@ def get_status_text():
     return (
         "🤖 Campus Bot\n\n"
         f"Status: {status}\n"
-        f"📍 Działanie:\n{BOT_STATE['action']}"
+        f"📍{BOT_STATE['action']}"
     )
 
 
@@ -293,7 +293,6 @@ async def check_apartments():
             text = (await sidebar.locator("xpath=../../..").inner_text()).lower()
 
             words = [
-                "stel een vraag",
                 "bezichtiging",
                 "deelnemen",
                 "plan bezichtiging",
