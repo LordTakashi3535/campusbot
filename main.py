@@ -251,7 +251,7 @@ async def check_apartments(page):
                     await card.inner_text()
                 ).lower()
 
-                # Только реальные карточки квартир
+                # Только реальные карточки
                 if (
                     "huurprijs" not in card_text
                     or "toegevoegd op" not in card_text
@@ -297,7 +297,7 @@ async def check_apartments(page):
                         ):
                             continue
 
-                        # Только реальные квартиры
+                        # Только квартиры
                         if (
                             "/woning/" not in href
                             and "/aanbod/" not in href
@@ -381,57 +381,85 @@ async def check_apartments(page):
                 await page.wait_for_timeout(5000)
 
                 # ==========================================
-                # ИЩЕМ КНОПКУ ТОЛЬКО В ПРАВОМ SIDEBAR
+                # ИЩЕМ БЛОК
+                # "Interesse in deze woning?"
                 # ==========================================
 
                 has_join_button = False
 
                 try:
 
-                    sidebar = page.locator(
-                        ".object-sidebar"
-                    ).first
+                    blocks = page.locator("div")
 
-                    await sidebar.wait_for(
-                        timeout=10000
-                    )
+                    blocks_count = await blocks.count()
 
-                    sidebar_text = (
-                        await sidebar.inner_text()
-                    ).lower()
+                    sidebar_text = ""
 
-                    log("📋 Проверяю sidebar...")
+                    for b in range(blocks_count):
 
-                    log(
-                        f"📄 Sidebar text:\n"
-                        f"{sidebar_text}"
-                    )
+                        try:
 
-                    # ==========================================
-                    # ИЩЕМ РЕАЛЬНЫЕ КНОПКИ ЗАПИСИ
-                    # ==========================================
+                            block = blocks.nth(b)
 
-                    register_words = [
+                            text = (
+                                await block.inner_text()
+                            ).lower()
 
-                        "bezichtiging",
-                        "deelnemen",
-                        "plan bezichtiging",
-                        "beschikbare kijkmomenten",
-                        "meld je aan"
+                            # Нашли нужный sidebar
+                            if (
+                                "interesse in deze woning"
+                                in text
+                            ):
 
-                    ]
+                                sidebar_text = text
 
-                    for word in register_words:
+                                break
 
-                        if word in sidebar_text:
+                        except:
+                            pass
 
-                            has_join_button = True
+                    if sidebar_text:
 
-                            log(
-                                f"✅ Найдена запись: {word}"
-                            )
+                        log(
+                            "📋 Найден sidebar Interesse..."
+                        )
 
-                            break
+                        log(
+                            f"📄 Sidebar text:\n"
+                            f"{sidebar_text}"
+                        )
+
+                        # ==========================================
+                        # ИЩЕМ РЕАЛЬНУЮ ЗАПИСЬ
+                        # ==========================================
+
+                        register_words = [
+
+                            "bezichtiging",
+                            "deelnemen",
+                            "plan bezichtiging",
+                            "beschikbare kijkmomenten",
+                            "meld je aan"
+
+                        ]
+
+                        for word in register_words:
+
+                            if word in sidebar_text:
+
+                                has_join_button = True
+
+                                log(
+                                    f"✅ Найдена запись: {word}"
+                                )
+
+                                break
+
+                    else:
+
+                        log(
+                            "⚠️ Sidebar Interesse не найден"
+                        )
 
                 except Exception as e:
 
