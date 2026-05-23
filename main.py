@@ -1,7 +1,6 @@
 import os
 import asyncio
 import threading
-import time
 import requests
 
 from dotenv import load_dotenv
@@ -21,10 +20,11 @@ CHECK_INTERVAL = 60
 sent_links = set()
 
 # =========================
-# USERS (MULTI USER FIX)
+# USERS + ADMIN
 # =========================
 
 users = set()
+ADMIN_CHAT_ID = None
 
 # =========================
 # BOT STATE
@@ -40,7 +40,7 @@ lock = threading.Lock()
 
 
 # =========================
-# TELEGRAM UI
+# UI
 # =========================
 
 def get_keyboard():
@@ -63,7 +63,7 @@ def get_status_text():
 
 
 # =========================
-# TELEGRAM SEND
+# SEND ALERT (MULTI USER)
 # =========================
 
 def send_telegram_alert(text):
@@ -81,25 +81,29 @@ def send_telegram_alert(text):
 
 
 # =========================
-# STATUS UPDATE
+# STATUS UPDATE (FIXED)
 # =========================
 
 def set_action(text):
 
+    global STATUS_MESSAGE_ID
+
     with lock:
         BOT_STATE["action"] = text
 
+    if not ADMIN_CHAT_ID or not STATUS_MESSAGE_ID:
+        return
+
     try:
-        if STATUS_MESSAGE_ID:
-            requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText",
-                json={
-                    "chat_id": list(users)[0] if users else None,
-                    "message_id": STATUS_MESSAGE_ID,
-                    "text": get_status_text(),
-                    "reply_markup": get_keyboard().to_dict()
-                }
-            )
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText",
+            json={
+                "chat_id": ADMIN_CHAT_ID,
+                "message_id": STATUS_MESSAGE_ID,
+                "text": get_status_text(),
+                "reply_markup": get_keyboard().to_dict()
+            }
+        )
     except:
         pass
 
@@ -109,16 +113,20 @@ def set_action(text):
 # =========================
 
 def start_command(update: Update, context):
+    global ADMIN_CHAT_ID, STATUS_MESSAGE_ID
+
     chat_id = update.effective_chat.id
 
     users.add(chat_id)
+
+    if ADMIN_CHAT_ID is None:
+        ADMIN_CHAT_ID = chat_id
 
     msg = update.message.reply_text(
         get_status_text(),
         reply_markup=get_keyboard()
     )
 
-    global STATUS_MESSAGE_ID
     STATUS_MESSAGE_ID = msg.message_id
 
 
@@ -154,7 +162,7 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (BEZ ZMIAN)
+# LOGIN (UNCHANGED LOGIC)
 # =========================
 
 async def login(page):
@@ -185,7 +193,7 @@ async def login(page):
 
 
 # =========================
-# CHECK (ЛОГИКА НЕ ТРОНУТА)
+# CHECK (UNCHANGED LOGIC)
 # =========================
 
 async def check_apartments(page):
@@ -288,6 +296,8 @@ async def check_apartments(page):
 async def main():
 
     threading.Thread(target=start_telegram_bot, daemon=True).start()
+
+    await asyncio.sleep(2)
 
     async with async_playwright() as p:
 
