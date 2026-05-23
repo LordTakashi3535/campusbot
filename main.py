@@ -390,7 +390,7 @@ async def check_apartments(page):
 
                     sidebar = page.locator(
                         "text=Interesse in deze woning?"
-                    ).locator("..")
+                    ).locator("..").first
 
                     await sidebar.wait_for(
                         timeout=10000
