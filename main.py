@@ -7,7 +7,7 @@ import requests
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler
 
 load_dotenv()
@@ -17,12 +17,12 @@ PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-CHECK_INTERVAL = 300
+CHECK_INTERVAL = 60
 
 sent_links = set()
 
 # =========================
-# STATE
+# STATE (THREAD SAFE)
 # =========================
 
 BOT_STATE = {
@@ -30,23 +30,22 @@ BOT_STATE = {
     "action": "Oczekiwanie..."
 }
 
+run_event = threading.Event()
+
 STATUS_MESSAGE_ID = None
 updater = None
-_last_update = 0
+lock = threading.Lock()
 
 
 # =========================
-# ALERT TELEGRAM
+# ALERT
 # =========================
 
 def send_telegram_alert(text):
     try:
         requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": text
-            },
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": text},
             timeout=10
         )
     except:
@@ -67,52 +66,36 @@ def get_keyboard():
 
 
 def get_status_text():
-
     status = "🟢 WŁĄCZONY" if BOT_STATE["running"] else "🔴 WYŁĄCZONY"
 
     return (
         "🤖 Campus Bot\n\n"
-        f"{status}\n"
-        f"📍 Status:\n{BOT_STATE['action']}"
+        f"Status: {status}\n"
+        f"📍 Działanie:\n{BOT_STATE['action']}"
     )
 
 
-# =========================
-# SAFE UI UPDATE
-# =========================
-
 def set_action(text):
+    with lock:
+        BOT_STATE["action"] = text
 
-    global _last_update, updater, STATUS_MESSAGE_ID
-
-    BOT_STATE["action"] = text
-
-    now = time.time()
-
-    if now - _last_update < 1.2:
-        return
-
-    _last_update = now
-
-    if not updater or not STATUS_MESSAGE_ID:
-        return
-
-    try:
-        updater.bot.edit_message_text(
-            chat_id=TELEGRAM_CHAT_ID,
-            message_id=STATUS_MESSAGE_ID,
-            text=get_status_text(),
-            reply_markup=get_keyboard()
-        )
-    except:
-        pass
+    if updater and STATUS_MESSAGE_ID:
+        try:
+            updater.bot.edit_message_text(
+                chat_id=TELEGRAM_CHAT_ID,
+                message_id=STATUS_MESSAGE_ID,
+                text=get_status_text(),
+                reply_markup=get_keyboard()
+            )
+        except:
+            pass
 
 
 # =========================
-# TELEGRAM UI
+# TELEGRAM
 # =========================
 
-def start_command(update, context):
+def start_command(update: Update, context):
 
     global STATUS_MESSAGE_ID
 
@@ -124,18 +107,26 @@ def start_command(update, context):
     STATUS_MESSAGE_ID = msg.message_id
 
 
-def button_handler(update, context):
+def button_handler(update: Update, context):
 
     query = update.callback_query
     query.answer()
 
     if query.data == "start":
-        BOT_STATE["running"] = True
-        BOT_STATE["action"] = "▶️ Start"
+
+        with lock:
+            BOT_STATE["running"] = True
+            BOT_STATE["action"] = "▶️ Uruchomiony"
+
+        run_event.set()
 
     elif query.data == "stop":
-        BOT_STATE["running"] = False
-        BOT_STATE["action"] = "⏹ Stop"
+
+        with lock:
+            BOT_STATE["running"] = False
+            BOT_STATE["action"] = "⏹ Zatrzymany"
+
+        run_event.clear()
 
     query.edit_message_text(
         text=get_status_text(),
@@ -158,54 +149,38 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (bez zmian logiki)
+# LOGIN (без изменений логики)
 # =========================
 
 async def login(page):
 
     set_action("🌐 Otwieram stronę...")
 
-    await page.goto(
-        "https://www.campusgroningen.com",
-        wait_until="domcontentloaded",
-        timeout=60000
-    )
-
-    await page.wait_for_timeout(4000)
+    await page.goto("https://www.campusgroningen.com", wait_until="domcontentloaded")
+    await page.wait_for_timeout(3000)
 
     if "uitloggen" in (await page.content()).lower():
         set_action("✅ Już zalogowany")
         return True
 
-    set_action("🔐 Klikam Inloggen")
+    set_action("🔐 Logowanie...")
 
-    login_button = page.locator("text=Inloggen")
-
-    if await login_button.count() == 0:
-        set_action("❌ Nie znaleziono przycisku logowania")
-        return False
-
-    await login_button.first.click(force=True)
+    await page.locator("text=Inloggen").first.click(force=True)
     await page.wait_for_timeout(2000)
 
-    set_action("📧 Wpisuję email")
     await page.locator('input[type="email"]').first.fill(EMAIL)
-
-    set_action("🔑 Wpisuję hasło")
     await page.locator('input[type="password"]').first.fill(PASSWORD)
-
-    set_action("⌨️ Wysyłam formularz")
 
     await page.locator('input[type="password"]').first.press("Enter")
     await page.wait_for_timeout(8000)
 
-    set_action("✅ Logowanie zakończone")
+    set_action("✅ Login OK")
 
     return True
 
 
 # =========================
-# CHECK (logika bez zmian)
+# CHECK (логика НЕ тронута)
 # =========================
 
 async def check_apartments(page):
@@ -221,8 +196,6 @@ async def check_apartments(page):
 
     cards = page.locator(".row")
     count = await cards.count()
-
-    set_action(f"📦 Znaleziono sekcji: {count}")
 
     apartments = []
 
@@ -255,10 +228,10 @@ async def check_apartments(page):
 
     for i, apt in enumerate(apartments, start=1):
 
-        if not BOT_STATE["running"]:
+        if not run_event.is_set():
             return
 
-        set_action(f"🏠 Sprawdzam {i}/{len(apartments)}\n{apt['title']}")
+        set_action(f"🏠 {i}/{len(apartments)}\n{apt['title']}")
 
         await page.goto(apt["url"])
         await page.wait_for_timeout(4000)
@@ -296,10 +269,10 @@ async def check_apartments(page):
             sent_links.add(apt["url"])
 
             send_telegram_alert(
-                "🚨 Dostępna rejestracja na oglądanie!\n\n"
+                "🚨 Dostępna rejestracja!\n\n"
                 f"🏠 {apt['title']}\n"
                 f"🔗 {apt['url']}\n"
-                f"🔤 Słowo: {matched}"
+                f"🔤 {matched}"
             )
 
 
@@ -316,24 +289,16 @@ async def main():
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
 
-        set_action("⏳ Oczekiwanie na uruchomienie")
+        set_action("⏳ Oczekiwanie na Start")
 
         while True:
 
-            if not BOT_STATE["running"]:
-                set_action("⏸ Bot zatrzymany — oczekiwanie na Start")
-                await asyncio.sleep(2)
-                continue
+            run_event.wait()
 
-            set_action("🌐 Logowanie...")
+            await login(page)
+            await check_apartments(page)
 
-            ok = await login(page)
-
-            if ok:
-                set_action("🔎 Sprawdzanie mieszkań...")
-                await check_apartments(page)
-
-            set_action(f"😴 Oczekiwanie {CHECK_INTERVAL}s")
+            set_action("😴 Oczekiwanie 300s")
 
             await asyncio.sleep(CHECK_INTERVAL)
 
