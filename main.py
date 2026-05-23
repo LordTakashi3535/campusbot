@@ -22,7 +22,9 @@ CHECK_INTERVAL = 300
 # =========================
 
 users = set()
-ADMIN_CHAT_ID = None
+
+# chat_id -> message_id
+STATUS_MESSAGES = {}
 
 # =========================
 # BOT STATE
@@ -36,7 +38,6 @@ BOT_STATE = {
     "countdown": CHECK_INTERVAL
 }
 
-STATUS_MESSAGE_ID = None
 lock = threading.Lock()
 
 browser = None
@@ -48,23 +49,37 @@ page = None
 # =========================
 
 def get_keyboard():
+
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("▶️ Start", callback_data="start"),
-            InlineKeyboardButton("⏹ Stop", callback_data="stop")
+            InlineKeyboardButton(
+                "▶️ Start",
+                callback_data="start"
+            ),
+
+            InlineKeyboardButton(
+                "⏹ Stop",
+                callback_data="stop"
+            )
         ]
     ])
 
 
 def get_status_text():
 
-    status = "🟢 WŁĄCZONY" if BOT_STATE["running"] else "🔴 WYŁĄCZONY"
+    status = (
+        "🟢 WŁĄCZONY"
+        if BOT_STATE["running"]
+        else "🔴 WYŁĄCZONY"
+    )
 
     return (
         "🤖 Campus Bot\n\n"
         f"Status: {status}\n"
-        f"🔄 Cykle wyszukiwania: {BOT_STATE['search_cycles']}\n"
-        f"🏠 Mieszkań w ulubionych: {BOT_STATE['favorites_count']}\n\n"
+        f"🔄 Cykle wyszukiwania: "
+        f"{BOT_STATE['search_cycles']}\n"
+        f"🏠 Mieszkań w ulubionych: "
+        f"{BOT_STATE['favorites_count']}\n\n"
         f"{BOT_STATE['action']}"
     )
 
@@ -80,7 +95,9 @@ def send_telegram_alert(text):
         try:
 
             requests.post(
-                f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+                f"https://api.telegram.org/bot"
+                f"{TELEGRAM_TOKEN}/sendMessage",
+
                 json={
                     "chat_id": chat_id,
                     "text": text
@@ -97,28 +114,31 @@ def send_telegram_alert(text):
 
 def set_action(text):
 
-    global STATUS_MESSAGE_ID
-
     with lock:
         BOT_STATE["action"] = text
 
-    if not ADMIN_CHAT_ID or not STATUS_MESSAGE_ID:
-        return
+    for chat_id, message_id in list(
+        STATUS_MESSAGES.items()
+    ):
 
-    try:
+        try:
 
-        requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/editMessageText",
-            json={
-                "chat_id": ADMIN_CHAT_ID,
-                "message_id": STATUS_MESSAGE_ID,
-                "text": get_status_text(),
-                "reply_markup": get_keyboard().to_dict()
-            }
-        )
+            requests.post(
+                f"https://api.telegram.org/bot"
+                f"{TELEGRAM_TOKEN}/editMessageText",
 
-    except:
-        pass
+                json={
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": get_status_text(),
+                    "reply_markup": (
+                        get_keyboard().to_dict()
+                    )
+                }
+            )
+
+        except:
+            pass
 
 
 # =========================
@@ -143,10 +163,14 @@ async def reset_browser():
 
     try:
 
-        playwright = await async_playwright().start()
+        playwright = (
+            await async_playwright().start()
+        )
 
-        browser = await playwright.chromium.launch(
-            headless=True
+        browser = (
+            await playwright.chromium.launch(
+                headless=True
+            )
         )
 
         page = await browser.new_page()
@@ -161,21 +185,16 @@ async def reset_browser():
 
 def start_command(update: Update, context):
 
-    global ADMIN_CHAT_ID, STATUS_MESSAGE_ID
-
     chat_id = update.effective_chat.id
 
     users.add(chat_id)
-
-    if ADMIN_CHAT_ID is None:
-        ADMIN_CHAT_ID = chat_id
 
     msg = update.message.reply_text(
         get_status_text(),
         reply_markup=get_keyboard()
     )
 
-    STATUS_MESSAGE_ID = msg.message_id
+    STATUS_MESSAGES[chat_id] = msg.message_id
 
 
 def button_handler(update: Update, context):
@@ -214,14 +233,20 @@ def start_telegram_bot():
     dp = updater.dispatcher
 
     dp.add_handler(
-        CommandHandler("start", start_command)
+        CommandHandler(
+            "start",
+            start_command
+        )
     )
 
     dp.add_handler(
-        CallbackQueryHandler(button_handler)
+        CallbackQueryHandler(
+            button_handler
+        )
     )
 
     updater.start_polling()
+
     updater.idle()
 
 
@@ -233,7 +258,9 @@ async def login():
 
     global page
 
-    set_action("🌐 Otwieram stronę...")
+    set_action(
+        "🌐 Otwieram stronę..."
+    )
 
     await page.goto(
         "https://www.campusgroningen.com",
@@ -242,13 +269,19 @@ async def login():
 
     await page.wait_for_timeout(3000)
 
-    if "uitloggen" in (await page.content()).lower():
+    if "uitloggen" in (
+        await page.content()
+    ).lower():
 
-        set_action("✅ Już zalogowany")
+        set_action(
+            "✅ Już zalogowany"
+        )
 
         return True
 
-    set_action("🔐 Logowanie...")
+    set_action(
+        "🔐 Logowanie..."
+    )
 
     await page.locator(
         "text=Inloggen"
@@ -270,7 +303,9 @@ async def login():
 
     await page.wait_for_timeout(8000)
 
-    set_action("✅ Login OK")
+    set_action(
+        "✅ Login OK"
+    )
 
     return True
 
@@ -284,7 +319,9 @@ async def check_apartments():
     global page
 
     await page.goto(
-        "https://www.campusgroningen.com/dashboard/mijn-favorieten",
+        "https://www.campusgroningen.com/"
+        "dashboard/mijn-favorieten",
+
         wait_until="domcontentloaded"
     )
 
@@ -301,7 +338,11 @@ async def check_apartments():
         card = cards.nth(i)
 
         try:
-            text = (await card.inner_text()).lower()
+
+            text = (
+                await card.inner_text()
+            ).lower()
+
         except:
             continue
 
@@ -310,18 +351,23 @@ async def check_apartments():
 
         links = card.locator("a")
 
-        for j in range(await links.count()):
+        for j in range(
+            await links.count()
+        ):
 
             link = links.nth(j)
 
-            href = await link.get_attribute("href")
+            href = await link.get_attribute(
+                "href"
+            )
 
             text = await link.inner_text()
 
             if href and "/woning/" in href:
 
                 url = (
-                    "https://www.campusgroningen.com" + href
+                    "https://www.campusgroningen.com"
+                    + href
                     if href.startswith("/")
                     else href
                 )
@@ -333,9 +379,14 @@ async def check_apartments():
 
                 break
 
-    BOT_STATE["favorites_count"] = len(apartments)
+    BOT_STATE["favorites_count"] = (
+        len(apartments)
+    )
 
-    for i, apt in enumerate(apartments, start=1):
+    for i, apt in enumerate(
+        apartments,
+        start=1
+    ):
 
         if not BOT_STATE["running"]:
             return
@@ -345,9 +396,13 @@ async def check_apartments():
             f"{apt['title']}"
         )
 
-        await page.goto(apt["url"])
+        await page.goto(
+            apt["url"]
+        )
 
-        await page.wait_for_timeout(4000)
+        await page.wait_for_timeout(
+            4000
+        )
 
         sidebar = page.locator(
             "text=Interesse in deze woning?"
@@ -358,7 +413,9 @@ async def check_apartments():
 
         try:
 
-            await sidebar.wait_for(timeout=8000)
+            await sidebar.wait_for(
+                timeout=8000
+            )
 
             text = (
                 await sidebar
@@ -367,6 +424,7 @@ async def check_apartments():
             ).lower()
 
             words = [
+                "stel een vraag",
                 "bezichtiging",
                 "deelnemen",
                 "plan bezichtiging",
@@ -411,19 +469,29 @@ async def main():
 
     await asyncio.sleep(2)
 
-    playwright = await async_playwright().start()
+    playwright = (
+        await async_playwright().start()
+    )
 
-    browser = await playwright.chromium.launch(
-        headless=True
+    browser = (
+        await playwright.chromium.launch(
+            headless=True
+        )
     )
 
     page = await browser.new_page()
 
-    set_action("⏳ Oczekiwanie na Start")
+    set_action(
+        "⏳ Oczekiwanie na Start"
+    )
 
     while True:
 
         try:
+
+            # =========================
+            # BOT OFF
+            # =========================
 
             if not BOT_STATE["running"]:
 
@@ -431,13 +499,25 @@ async def main():
 
                 continue
 
+            # =========================
+            # LOGIN
+            # =========================
+
             ok = await login()
+
+            # =========================
+            # CHECK
+            # =========================
 
             if ok:
 
                 await check_apartments()
 
                 BOT_STATE["search_cycles"] += 1
+
+            # =========================
+            # COUNTDOWN
+            # =========================
 
             for remaining in range(
                 CHECK_INTERVAL,
@@ -451,10 +531,15 @@ async def main():
                 BOT_STATE["countdown"] = remaining
 
                 set_action(
-                    f"😴 Oczekiwanie {remaining}s"
+                    f"😴 Oczekiwanie "
+                    f"{remaining}s"
                 )
 
                 await asyncio.sleep(30)
+
+        # =========================
+        # ERROR
+        # =========================
 
         except Exception as e:
 
