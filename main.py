@@ -381,7 +381,7 @@ async def check_apartments(page):
                 await page.wait_for_timeout(5000)
 
                 # ==========================================
-                # ИЩЕМ КНОПКУ ТОЛЬКО В SIDEBAR
+                # ИЩЕМ КНОПКУ ТОЛЬКО В ПРАВОМ SIDEBAR
                 # ==========================================
 
                 has_join_button = False
@@ -389,7 +389,7 @@ async def check_apartments(page):
                 try:
 
                     sidebar = page.locator(
-                        'div:has-text("Interesse in deze woning?")'
+                        ".object-sidebar"
                     ).first
 
                     await sidebar.wait_for(
@@ -403,16 +403,18 @@ async def check_apartments(page):
                     log("📋 Проверяю sidebar...")
 
                     log(
-                        f"📄 Sidebar text: "
-                        f"{sidebar_text[:300]}"
+                        f"📄 Sidebar text:\n"
+                        f"{sidebar_text}"
                     )
 
-                    # Слова реальной записи
+                    # ==========================================
+                    # ИЩЕМ РЕАЛЬНЫЕ КНОПКИ ЗАПИСИ
+                    # ==========================================
+
                     register_words = [
 
                         "bezichtiging",
                         "deelnemen",
-                        "inschrijven",
                         "plan bezichtiging",
                         "beschikbare kijkmomenten",
                         "meld je aan"
@@ -422,14 +424,6 @@ async def check_apartments(page):
                     for word in register_words:
 
                         if word in sidebar_text:
-
-                            # Игнорируем обычную кнопку вопроса
-                            if (
-                                "stel een vraag"
-                                in sidebar_text
-                                and word == "inschrijven"
-                            ):
-                                continue
 
                             has_join_button = True
 
