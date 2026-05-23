@@ -17,10 +17,8 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 CHECK_INTERVAL = 60
 
-sent_links = set()
-
 # =========================
-# USERS + ADMIN
+# USERS
 # =========================
 
 users = set()
@@ -63,7 +61,7 @@ def get_status_text():
 
 
 # =========================
-# SEND ALERT (MULTI USER)
+# ALERT (ALWAYS SEND)
 # =========================
 
 def send_telegram_alert(text):
@@ -162,7 +160,7 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (UNCHANGED LOGIC)
+# LOGIN
 # =========================
 
 async def login(page):
@@ -193,12 +191,10 @@ async def login(page):
 
 
 # =========================
-# CHECK (UNCHANGED LOGIC)
+# CHECK (ALWAYS NOTIFY)
 # =========================
 
 async def check_apartments(page):
-
-    global sent_links
 
     await page.goto(
         "https://www.campusgroningen.com/dashboard/mijn-favorieten",
@@ -277,9 +273,8 @@ async def check_apartments(page):
         except:
             pass
 
-        if found and apt["url"] not in sent_links:
-
-            sent_links.add(apt["url"])
+        # 🚨 ALWAYS SEND (NO ANTI-DUPLICATE)
+        if found:
 
             send_telegram_alert(
                 "🚨 Dostępna rejestracja!\n\n"
