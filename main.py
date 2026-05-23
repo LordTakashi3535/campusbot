@@ -348,6 +348,10 @@ async def login():
 # CHECK APARTMENTS
 # =========================
 
+# =========================
+# CHECK APARTMENTS
+# =========================
+
 async def check_apartments():
 
     global page
@@ -355,8 +359,11 @@ async def check_apartments():
     await page.goto(
         "https://www.campusgroningen.com/"
         "dashboard/mijn-favorieten",
-
         wait_until="domcontentloaded"
+    )
+
+    await page.wait_for_load_state(
+        "networkidle"
     )
 
     await page.wait_for_timeout(3000)
@@ -370,6 +377,10 @@ async def check_apartments():
     log_text = (
         "📋 LOG SPRAWDZANIA\n\n"
     )
+
+    # =========================
+    # GET APARTMENTS
+    # =========================
 
     for i in range(count):
 
@@ -421,6 +432,10 @@ async def check_apartments():
         len(apartments)
     )
 
+    # =========================
+    # CHECK EVERY APARTMENT
+    # =========================
+
     for i, apt in enumerate(
         apartments,
         start=1
@@ -435,96 +450,124 @@ async def check_apartments():
         )
 
         await page.goto(
-            apt["url"]
+            apt["url"],
+            wait_until="domcontentloaded"
         )
 
-        await page.wait_for_timeout(
-            4000
+        await page.wait_for_load_state(
+            "networkidle"
         )
 
-        sidebar = page.locator(
-            "text=Interesse in deze woning?"
-        ).first
+        await page.wait_for_timeout(5000)
 
-        found = False
-        matched = None
-        text = ""
+        # =========================
+        # FULL PAGE TEXT FOR LOGS
+        # =========================
 
         try:
 
-            await sidebar.wait_for(
-                timeout=8000
-            )
-
             text = (
-                await sidebar
-                .locator("xpath=../../..")
+                await page
+                .locator("body")
                 .inner_text()
             ).lower()
 
-            words = [
-                "bezichtiging",
-                "deelnemen",
-                "plan bezichtiging",
-                "beschikbare kijkmomenten",
-                "meld je aan"
-            ]
-
-            for w in words:
-
-                if w in text:
-
-                    found = True
-                    matched = w
-
-                    break
-
         except:
-            pass
+
+            text = "BRAK TEKSTU"
+
+        # =========================
+        # BUTTON DETECTION
+        # =========================
+
+        found = False
+        matched = None
+
+        buttons = [
+            "ik wil deze woning",
+            "inschrijven",
+            "meld je aan",
+            "plan bezichtiging",
+            "deelnemen aan de bezichtiging"
+        ]
+
+        for btn in buttons:
+
+            try:
+
+                locator = page.locator(
+                    f"text={btn}"
+                )
+
+                if await locator.count() > 0:
+
+                    if await locator.first.is_visible():
+
+                        found = True
+                        matched = btn
+
+                        break
+
+            except:
+                pass
 
         # =========================
         # ADD TO GLOBAL LOG
         # =========================
 
         preview = (
-            text[:700]
+            text[:1200]
             if text
             else "BRAK TEKSTU"
         )
 
         log_text += (
             f"🏠 {apt['title']}\n"
-            f"🔗 {apt['url']}\n"
+            f"🔗 {apt['url']}\n\n"
+
             f"🔍 FOUND: {found}\n"
             f"🔤 MATCHED: {matched}\n\n"
-            "SIDEBAR:\n"
+
+            "BUTTONS CHECKED:\n"
+            f"{', '.join(buttons)}\n\n"
+
+            "========================\n"
+            "PAGE TEXT:\n"
+            "========================\n\n"
+
             f"{preview}\n\n"
+
             "========================\n\n"
         )
 
         # =========================
-        # ALERT
+        # TEMP TEST MODE
+        # ALERT DISABLED
         # =========================
 
         if found:
 
-            send_telegram_alert(
-                "🚨 Dostępna rejestracja!\n\n"
-                f"🏠 {apt['title']}\n"
-                f"🔗 {apt['url']}\n"
-                f"🔤 Słowo: {matched}"
+            log_text += (
+                "⚠️ DETECTION TRIGGERED\n"
+                f"MATCHED: {matched}\n\n"
             )
+
+            # ENABLE LATER:
+            #
+            # send_telegram_alert(
+            #     "🚨 Dostępna rejestracja!\n\n"
+            #     f"🏠 {apt['title']}\n"
+            #     f"🔗 {apt['url']}\n"
+            #     f"🔤 Słowo: {matched}"
+            # )
 
     # =========================
     # SEND FINAL LOG
     # =========================
 
-    send_log_message(log_text[:4000])
-
-
-# =========================
-# MAIN LOOP
-# =========================
+    send_log_message(
+        log_text[:4000]
+    )
 
 async def main():
 
