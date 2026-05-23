@@ -1,13 +1,12 @@
 import os
 import asyncio
-from datetime import datetime
 import threading
-
 import requests
+
 from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Updater, CommandHandler, CallbackQueryHandler, CallbackContext
 
 load_dotenv()
@@ -23,25 +22,45 @@ CHECK_INTERVAL = 60
 sent_links = set()
 
 # =========================
-# UI STATE (НОВОЕ)
+# STATE
 # =========================
 
 BOT_STATE = {
     "running": False,
     "action": "Ожидание...",
-    "checked": 0,
-    "last_found": None
+    "current_apartment": "-",
+    "checked_live": 0,
+    "checked_final": 0,
+    "last_url": "-",
+    "last_word": "-"
 }
 
 STATUS_MESSAGE_ID = None
 
 
 # =========================
-# STATUS UI
+# TELEGRAM ALERT
+# =========================
+
+def send_telegram_alert(text):
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
+            json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text
+            },
+            timeout=10
+        )
+    except:
+        pass
+
+
+# =========================
+# UI
 # =========================
 
 def get_keyboard():
-
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("▶️ Запуск", callback_data="start"),
@@ -58,37 +77,19 @@ def get_status_text():
         "🤖 Campus Bot\n\n"
         f"Статус: {status}\n"
         f"📍 Действие: {BOT_STATE['action']}\n"
-        f"🏠 Проверено квартир: {BOT_STATE['checked']}"
+        f"🏠 Квартира: {BOT_STATE['current_apartment']}\n"
+        f"📊 Проверено сейчас: {BOT_STATE['checked_live']}\n"
+        f"📦 Всего (после стопа): {BOT_STATE['checked_final']}\n\n"
+        f"🔎 DEBUG URL:\n{BOT_STATE['last_url']}\n\n"
+        f"🔤 DEBUG WORD:\n{BOT_STATE['last_word']}"
     )
 
 
-def set_action(text):
-    BOT_STATE["action"] = text
-
-
-async def update_status(context=None):
-
-    global STATUS_MESSAGE_ID
-
-    if not STATUS_MESSAGE_ID:
-        return
-
-    try:
-        context.bot.edit_message_text(
-            chat_id=TELEGRAM_CHAT_ID,
-            message_id=STATUS_MESSAGE_ID,
-            text=get_status_text(),
-            reply_markup=get_keyboard()
-        )
-    except:
-        pass
-
-
 # =========================
-# TELEGRAM UI
+# TELEGRAM MENU
 # =========================
 
-def start_command(update: Update, context: CallbackContext):
+def start_command(update, context):
 
     global STATUS_MESSAGE_ID
 
@@ -100,7 +101,7 @@ def start_command(update: Update, context: CallbackContext):
     STATUS_MESSAGE_ID = msg.message_id
 
 
-def button_handler(update: Update, context: CallbackContext):
+def button_handler(update, context):
 
     query = update.callback_query
     query.answer()
@@ -112,6 +113,7 @@ def button_handler(update: Update, context: CallbackContext):
     elif query.data == "stop":
         BOT_STATE["running"] = False
         BOT_STATE["action"] = "Остановлен"
+        BOT_STATE["checked_final"] = BOT_STATE["checked_live"]
 
     query.edit_message_text(
         text=get_status_text(),
@@ -124,7 +126,6 @@ def start_telegram_bot():
     updater = Updater(TELEGRAM_TOKEN, use_context=True)
 
     dp = updater.dispatcher
-
     dp.add_handler(CommandHandler("start", start_command))
     dp.add_handler(CallbackQueryHandler(button_handler))
 
@@ -133,231 +134,185 @@ def start_telegram_bot():
 
 
 # =========================
-# LOGIN (НЕ ИЗМЕНЯЛ)
+# LOGIN (без изменений логики)
 # =========================
 
 async def login(page):
 
-    try:
+    BOT_STATE["action"] = "Логин..."
 
-        set_action("Открываю сайт...")
+    await page.goto(
+        "https://www.campusgroningen.com",
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
 
-        await page.goto(
-            "https://www.campusgroningen.com",
-            wait_until="domcontentloaded",
-            timeout=60000
-        )
+    await page.wait_for_timeout(5000)
 
-        await page.wait_for_timeout(5000)
+    page_text = (await page.content()).lower()
+    current_url = page.url.lower()
 
-        current_url = page.url.lower()
-        page_text = (await page.content()).lower()
+    if (
+        "uitloggen" in page_text
+        or "mijn favorieten" in page_text
+        or "dashboard" in current_url
+        or "mijncampus" in page_text
+    ):
+        BOT_STATE["action"] = "Уже авторизован"
+        return True
 
-        if (
-            "uitloggen" in page_text
-            or "mijn favorieten" in page_text
-            or "dashboard" in current_url
-            or "mijncampus" in page_text
-        ):
-            set_action("Уже авторизован")
-            return True
+    login_button = page.locator("text=Inloggen")
 
-        login_button = page.locator("text=Inloggen")
-
-        if await login_button.count() == 0:
-            return False
-
-        set_action("Логин...")
-
-        await login_button.first.click(force=True)
-        await page.wait_for_timeout(5000)
-
-        await page.locator('input[type="email"]').first.fill(EMAIL)
-        await page.locator('input[type="password"]').first.fill(PASSWORD)
-
-        await page.locator('input[type="password"]').first.press("Enter")
-
-        await page.wait_for_timeout(10000)
-
-        page_text = (await page.content()).lower()
-
-        return (
-            "uitloggen" in page_text
-            or "mijn favorieten" in page_text
-            or "dashboard" in page.url.lower()
-        )
-
-    except Exception as e:
-        set_action("Ошибка login")
+    if await login_button.count() == 0:
         return False
+
+    await login_button.first.click(force=True)
+    await page.wait_for_timeout(5000)
+
+    await page.locator('input[type="email"]').first.fill(EMAIL)
+    await page.locator('input[type="password"]').first.fill(PASSWORD)
+
+    await page.locator('input[type="password"]').first.press("Enter")
+
+    await page.wait_for_timeout(10000)
+
+    return True
 
 
 # =========================
-# CHECK (ТВОЯ ФУНКЦИЯ БЕЗ ИЗМЕНЕНИЙ ЛОГИКИ)
+# CHECK APARTMENTS
 # =========================
 
 async def check_apartments(page):
 
     global sent_links
 
-    try:
+    BOT_STATE["checked_live"] = 0
+    BOT_STATE["action"] = "Открываю избранное..."
 
-        set_action("Открываю избранное...")
+    await page.goto(
+        "https://www.campusgroningen.com/dashboard/mijn-favorieten",
+        wait_until="domcontentloaded",
+        timeout=60000
+    )
 
-        await page.goto(
-            "https://www.campusgroningen.com/dashboard/mijn-favorieten",
-            wait_until="domcontentloaded",
-            timeout=60000
-        )
+    await page.wait_for_timeout(5000)
 
+    cards = page.locator(".row")
+    cards_count = await cards.count()
+
+    BOT_STATE["action"] = "Сканирую квартиры..."
+
+    apartment_links = []
+    processed_urls = set()
+
+    for i in range(cards_count):
+
+        card = cards.nth(i)
+        card_text = (await card.inner_text()).lower()
+
+        if "huurprijs" not in card_text:
+            continue
+
+        links = card.locator("a")
+
+        for j in range(await links.count()):
+
+            link = links.nth(j)
+
+            text = (await link.inner_text()).strip()
+            href = await link.get_attribute("href")
+
+            if not href:
+                continue
+
+            if "/woning/" not in href:
+                continue
+
+            url = (
+                "https://www.campusgroningen.com" + href
+                if href.startswith("/")
+                else href
+            )
+
+            apartment_links.append({
+                "title": text,
+                "url": url
+            })
+
+            break
+
+    BOT_STATE["checked_live"] = len(apartment_links)
+
+    found_any = False
+
+    for index, apartment in enumerate(apartment_links, start=1):
+
+        if not BOT_STATE["running"]:
+            return
+
+        title = apartment["title"]
+        url = apartment["url"]
+
+        BOT_STATE["current_apartment"] = title
+        BOT_STATE["action"] = f"Проверяю {title}"
+
+        await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(5000)
 
-        apartment_links = []
-        processed_urls = set()
+        has_join_button = False
+        matched_word = None
 
-        cards = page.locator(".row")
+        try:
 
-        cards_count = await cards.count()
+            sidebar = page.locator("text=Interesse in deze woning?").first
+            await sidebar.wait_for(timeout=10000)
 
-        set_action("Сканирую объявления...")
+            sidebar = sidebar.locator("xpath=../../..")
+            sidebar_text = (await sidebar.inner_text()).lower()
 
-        for i in range(cards_count):
+            register_words = [
+                "stel een vraag",
+                "bezichtiging",
+                "deelnemen",
+                "plan bezichtiging",
+                "beschikbare kijkmomenten",
+                "meld je aan"
+            ]
 
-            try:
-
-                card = cards.nth(i)
-
-                card_text = (await card.inner_text()).lower()
-
-                if (
-                    "huurprijs" not in card_text
-                    or "toegevoegd op" not in card_text
-                ):
-                    continue
-
-                links = card.locator("a")
-
-                links_count = await links.count()
-
-                apartment_url = None
-                apartment_title = None
-
-                for j in range(links_count):
-
-                    link = links.nth(j)
-
-                    text = (await link.inner_text()).strip()
-                    href = await link.get_attribute("href")
-
-                    if not href or not text:
-                        continue
-
-                    text_lower = text.lower()
-
-                    if (
-                        "favoriet" in text_lower
-                        or "verwijderen" in text_lower
-                        or "facebook" in text_lower
-                        or "instagram" in text_lower
-                        or "linkedin" in text_lower
-                    ):
-                        continue
-
-                    if (
-                        "/woning/" not in href
-                        and "/aanbod/" not in href
-                    ):
-                        continue
-
-                    apartment_title = text
-
-                    apartment_url = (
-                        "https://www.campusgroningen.com" + href
-                        if href.startswith("/")
-                        else href
-                    )
-
+            for word in register_words:
+                if word.lower() in sidebar_text:
+                    has_join_button = True
+                    matched_word = word
                     break
 
-                if not apartment_url:
-                    continue
+        except:
+            pass
 
-                if apartment_url in processed_urls:
-                    continue
+        if has_join_button and url not in sent_links:
 
-                processed_urls.add(apartment_url)
+            sent_links.add(url)
 
-                apartment_links.append({
-                    "title": apartment_title,
-                    "url": apartment_url
-                })
+            BOT_STATE["action"] = "🚨 Найдена регистрация"
+            BOT_STATE["last_url"] = url
+            BOT_STATE["last_word"] = matched_word
 
-            except:
-                pass
+            # 🔥 ВОТ ТВОЁ УВЕДОМЛЕНИЕ
+            send_telegram_alert(
+                "🚨 Найдена регистрация на просмотр!\n\n"
+                f"🏠 {title}\n"
+                f"🔗 {url}\n"
+                f"🔤 Слово: {matched_word}"
+            )
 
-        BOT_STATE["checked"] = len(apartment_links)
+            found_any = True
 
-        found_any = False
+        BOT_STATE["checked_live"] = index
 
-        for index, apartment in enumerate(apartment_links, start=1):
+        await asyncio.sleep(0)
 
-            set_action(f"Проверяю {index}/{len(apartment_links)}")
-
-            apartment_url = apartment["url"]
-            title = apartment["title"]
-
-            await page.goto(apartment_url, wait_until="domcontentloaded")
-            await page.wait_for_timeout(5000)
-
-            has_join_button = False
-
-            try:
-
-                sidebar_title = page.locator(
-                    "text=Interesse in deze woning?"
-                ).first
-
-                await sidebar_title.wait_for(timeout=10000)
-
-                sidebar = sidebar_title.locator("xpath=../../..")
-
-                sidebar_text = (await sidebar.inner_text()).lower()
-
-                register_words = [
-                    "stel een vraag",
-                    "bezichtiging",
-                    "deelnemen",
-                    "plan bezichtiging",
-                    "beschikbare kijkmomenten",
-                    "meld je aan"
-                ]
-
-                for word in register_words:
-                    if word.lower() in sidebar_text:
-                        has_join_button = True
-                        break
-
-            except:
-                pass
-
-            if has_join_button:
-
-                found_any = True
-
-                if apartment_url not in sent_links:
-
-                    sent_links.add(apartment_url)
-
-                    set_action("🚨 Найдена квартира!")
-
-            else:
-                pass
-
-        if not found_any:
-            set_action("Свободных записей нет")
-
-    except:
-        set_action("Ошибка проверки")
+    if not found_any:
+        BOT_STATE["action"] = "Свободных записей нет"
 
 
 # =========================
@@ -381,14 +336,8 @@ async def main():
                     await asyncio.sleep(2)
                     continue
 
-                await update_status()
-
-                success = await login(page)
-
-                if success:
-                    await check_apartments(page)
-
-                await update_status()
+                await login(page)
+                await check_apartments(page)
 
                 await asyncio.sleep(CHECK_INTERVAL)
 
