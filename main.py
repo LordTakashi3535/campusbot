@@ -36,6 +36,7 @@ BOT_STATE = {
     "action": "Oczekiwanie...",
     "search_cycles": 0,
     "favorites_count": 0,
+    "buttons_count": 0,
     "countdown": CHECK_INTERVAL
 }
 
@@ -86,7 +87,9 @@ def get_status_text():
         f"🔄 Cykle wyszukiwania: "
         f"{BOT_STATE['search_cycles']}\n"
         f"🏠 Mieszkań w ulubionych: "
-        f"{BOT_STATE['favorites_count']}\n\n"
+        f"{BOT_STATE['favorites_count']}\n"
+        f"🔘 Buttons: "
+        f"{BOT_STATE['buttons_count']}\n\n"
         f"{BOT_STATE['action']}"
     )
 
@@ -374,10 +377,6 @@ async def check_apartments():
 
     apartments = []
 
-    log_text = (
-        "📋 LOG SPRAWDZANIA\n\n"
-    )
-
     # =========================
     # GET APARTMENTS
     # =========================
@@ -432,6 +431,8 @@ async def check_apartments():
         len(apartments)
     )
 
+    total_buttons = 0
+
     # =========================
     # CHECK EVERY APARTMENT
     # =========================
@@ -459,22 +460,6 @@ async def check_apartments():
         )
 
         await page.wait_for_timeout(5000)
-
-        # =========================
-        # FULL PAGE TEXT
-        # =========================
-
-        try:
-
-            text = (
-                await page
-                .locator("body")
-                .inner_text()
-            ).lower()
-
-        except:
-
-            text = "BRAK TEKSTU"
 
         # =========================
         # COUNT BUTTONS
@@ -505,80 +490,33 @@ async def check_apartments():
             except:
                 pass
 
-        # =========================
-        # DETECTION
-        # =========================
-
-        found = False
-        matched = None
-
-        if button_count > LAST_BUTTON_COUNT:
-
-            found = True
-
-            matched = (
-                f"NEW BUTTON COUNT: "
-                f"{LAST_BUTTON_COUNT} -> "
-                f"{button_count}"
-            )
-
-            LAST_BUTTON_COUNT = button_count
-
-        # =========================
-        # LOG
-        # =========================
-
-        preview = (
-            text[:1200]
-            if text
-            else "BRAK TEKSTU"
-        )
-
-        log_text += (
-            f"🏠 {apt['title']}\n"
-            f"🔗 {apt['url']}\n\n"
-
-            f"🔍 FOUND: {found}\n"
-            f"🔤 MATCHED: {matched}\n"
-            f"🔘 BUTTON COUNT: "
-            f"{button_count}\n\n"
-
-            "========================\n"
-            "PAGE TEXT:\n"
-            "========================\n\n"
-
-            f"{preview}\n\n"
-
-            "========================\n\n"
-        )
-
-        # =========================
-        # DETECTION TRIGGERED
-        # =========================
-
-        if found:
-
-            log_text += (
-                "⚠️ DETECTION TRIGGERED\n"
-                f"{matched}\n\n"
-            )
-
-            # ENABLE LATER:
-            #
-            # send_telegram_alert(
-            #     "🚨 Dostępna rejestracja!\n\n"
-            #     f"🏠 {apt['title']}\n"
-            #     f"🔗 {apt['url']}\n"
-            #     f"{matched}"
-            # )
+        total_buttons += button_count
 
     # =========================
-    # SEND FINAL LOG
+    # SAVE BUTTON COUNT
     # =========================
 
-    send_log_message(
-        log_text[:4000]
+    BOT_STATE["buttons_count"] = (
+        total_buttons
     )
+
+    # =========================
+    # NEW BUTTON DETECTED
+    # =========================
+
+    if (
+        LAST_BUTTON_COUNT != 0
+        and total_buttons > LAST_BUTTON_COUNT
+    ):
+
+        send_log_message(
+            "🚨 NOWY BUTTON!\n\n"
+            f"🔘 Buttons: "
+            f"{LAST_BUTTON_COUNT}"
+            f" -> {total_buttons}"
+        )
+
+    LAST_BUTTON_COUNT = total_buttons
 
 
 # =========================
