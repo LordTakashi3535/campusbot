@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import threading
 import requests
@@ -41,7 +42,7 @@ BOT_STATE = {
 }
 
 # =========================
-# BUTTON TRACKING
+# TRACKING
 # =========================
 
 LAST_BUTTON_COUNT = 0
@@ -119,7 +120,7 @@ def send_telegram_alert(text):
             pass
 
 
-def send_log_message(text):
+def send_owner_message(text):
 
     global OWNER_CHAT_ID
 
@@ -226,6 +227,7 @@ def start_command(update: Update, context):
 
     users.add(chat_id)
 
+    # Первый пользователь = владелец
     if OWNER_CHAT_ID is None:
         OWNER_CHAT_ID = chat_id
 
@@ -246,14 +248,12 @@ def button_handler(update: Update, context):
     if query.data == "start":
 
         BOT_STATE["running"] = True
-        BOT_STATE["countdown"] = CHECK_INTERVAL
 
         set_action("▶️ Uruchomiony")
 
     elif query.data == "stop":
 
         BOT_STATE["running"] = False
-        BOT_STATE["countdown"] = 0
 
         set_action("⏹ Zatrzymany")
 
@@ -462,6 +462,22 @@ async def check_apartments():
         await page.wait_for_timeout(5000)
 
         # =========================
+        # PAGE TEXT
+        # =========================
+
+        try:
+
+            text = (
+                await page
+                .locator("body")
+                .inner_text()
+            ).lower()
+
+        except:
+
+            text = ""
+
+        # =========================
         # COUNT BUTTONS
         # =========================
 
@@ -492,6 +508,24 @@ async def check_apartments():
 
         total_buttons += button_count
 
+        # =========================
+        # DATE DETECTION
+        # =========================
+
+        matches = re.findall(
+            r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}h",
+            text
+        )
+
+        if matches:
+
+            send_owner_message(
+                "📅 DATA DETECTED\n\n"
+                f"🏠 {apt['title']}\n\n"
+                f"🔗 {apt['url']}\n\n"
+                f"📅 {matches[0]}"
+            )
+
     # =========================
     # SAVE BUTTON COUNT
     # =========================
@@ -509,7 +543,7 @@ async def check_apartments():
         and total_buttons > LAST_BUTTON_COUNT
     ):
 
-        send_log_message(
+        send_owner_message(
             "🚨 NOWY BUTTON!\n\n"
             f"🔘 Buttons: "
             f"{LAST_BUTTON_COUNT}"
@@ -587,8 +621,6 @@ async def main():
 
                     break
 
-                BOT_STATE["countdown"] = remaining
-
                 set_action(
                     f"😴 Oczekiwanie "
                     f"{remaining}s"
@@ -604,7 +636,7 @@ async def main():
                 f"❌ Błąd: {error_text}"
             )
 
-            send_log_message(
+            send_owner_message(
                 "❌ ERROR\n\n"
                 f"{error_text}"
             )
