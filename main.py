@@ -23,10 +23,8 @@ CHECK_INTERVAL = 300
 
 users = set()
 
-# Только владелец получает debug/log
 OWNER_CHAT_ID = None
 
-# chat_id -> status_message_id
 STATUS_MESSAGES = {}
 
 # =========================
@@ -40,6 +38,12 @@ BOT_STATE = {
     "favorites_count": 0,
     "countdown": CHECK_INTERVAL
 }
+
+# =========================
+# BUTTON TRACKING
+# =========================
+
+LAST_BUTTON_COUNT = 0
 
 lock = threading.Lock()
 
@@ -219,7 +223,6 @@ def start_command(update: Update, context):
 
     users.add(chat_id)
 
-    # Первый пользователь = владелец
     if OWNER_CHAT_ID is None:
         OWNER_CHAT_ID = chat_id
 
@@ -348,13 +351,10 @@ async def login():
 # CHECK APARTMENTS
 # =========================
 
-# =========================
-# CHECK APARTMENTS
-# =========================
-
 async def check_apartments():
 
     global page
+    global LAST_BUTTON_COUNT
 
     await page.goto(
         "https://www.campusgroningen.com/"
@@ -461,7 +461,7 @@ async def check_apartments():
         await page.wait_for_timeout(5000)
 
         # =========================
-        # FULL PAGE TEXT FOR LOGS
+        # FULL PAGE TEXT
         # =========================
 
         try:
@@ -477,42 +477,55 @@ async def check_apartments():
             text = "BRAK TEKSTU"
 
         # =========================
-        # BUTTON DETECTION
+        # COUNT BUTTONS
         # =========================
 
-        found = False
-        matched = None
-
-        buttons = [
-            "ik wil deze woning",
-            "inschrijven",
-            "meld je aan",
-            "plan bezichtiging",
-            "deelnemen aan de bezichtiging"
+        button_selectors = [
+            "button",
+            "a.btn",
+            "a.button",
+            "[role='button']",
+            "input[type='submit']"
         ]
 
-        for btn in buttons:
+        button_count = 0
+
+        for selector in button_selectors:
 
             try:
 
                 locator = page.locator(
-                    f"text={btn}"
+                    selector
                 )
 
-                if await locator.count() > 0:
+                count = await locator.count()
 
-                    if await locator.first.is_visible():
-
-                        found = True
-                        matched = btn
-
-                        break
+                button_count += count
 
             except:
                 pass
 
         # =========================
-        # ADD TO GLOBAL LOG
+        # DETECTION
+        # =========================
+
+        found = False
+        matched = None
+
+        if button_count > LAST_BUTTON_COUNT:
+
+            found = True
+
+            matched = (
+                f"NEW BUTTON COUNT: "
+                f"{LAST_BUTTON_COUNT} -> "
+                f"{button_count}"
+            )
+
+            LAST_BUTTON_COUNT = button_count
+
+        # =========================
+        # LOG
         # =========================
 
         preview = (
@@ -526,10 +539,9 @@ async def check_apartments():
             f"🔗 {apt['url']}\n\n"
 
             f"🔍 FOUND: {found}\n"
-            f"🔤 MATCHED: {matched}\n\n"
-
-            "BUTTONS CHECKED:\n"
-            f"{', '.join(buttons)}\n\n"
+            f"🔤 MATCHED: {matched}\n"
+            f"🔘 BUTTON COUNT: "
+            f"{button_count}\n\n"
 
             "========================\n"
             "PAGE TEXT:\n"
@@ -541,15 +553,14 @@ async def check_apartments():
         )
 
         # =========================
-        # TEMP TEST MODE
-        # ALERT DISABLED
+        # DETECTION TRIGGERED
         # =========================
 
         if found:
 
             log_text += (
                 "⚠️ DETECTION TRIGGERED\n"
-                f"MATCHED: {matched}\n\n"
+                f"{matched}\n\n"
             )
 
             # ENABLE LATER:
@@ -558,7 +569,7 @@ async def check_apartments():
             #     "🚨 Dostępna rejestracja!\n\n"
             #     f"🏠 {apt['title']}\n"
             #     f"🔗 {apt['url']}\n"
-            #     f"🔤 Słowo: {matched}"
+            #     f"{matched}"
             # )
 
     # =========================
@@ -568,6 +579,11 @@ async def check_apartments():
     send_log_message(
         log_text[:4000]
     )
+
+
+# =========================
+# MAIN LOOP
+# =========================
 
 async def main():
 
@@ -600,25 +616,13 @@ async def main():
 
         try:
 
-            # =========================
-            # BOT OFF
-            # =========================
-
             if not BOT_STATE["running"]:
 
                 await asyncio.sleep(1)
 
                 continue
 
-            # =========================
-            # LOGIN
-            # =========================
-
             ok = await login()
-
-            # =========================
-            # CHECK APARTMENTS
-            # =========================
 
             if ok:
 
@@ -653,10 +657,6 @@ async def main():
                 )
 
                 await asyncio.sleep(30)
-
-        # =========================
-        # ERROR
-        # =========================
 
         except Exception as e:
 
