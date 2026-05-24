@@ -37,15 +37,14 @@ BOT_STATE = {
     "action": "Oczekiwanie...",
     "search_cycles": 0,
     "favorites_count": 0,
-    "buttons_count": 0,
-    "countdown": CHECK_INTERVAL
+    "buttons_count": 0
 }
 
 # =========================
 # TRACKING
 # =========================
 
-LAST_BUTTON_COUNT = 0
+LAST_BUTTON_TEXTS = set()
 
 lock = threading.Lock()
 
@@ -98,27 +97,6 @@ def get_status_text():
 # =========================
 # ALERTS
 # =========================
-
-def send_telegram_alert(text):
-
-    for chat_id in list(users):
-
-        try:
-
-            requests.post(
-                f"https://api.telegram.org/bot"
-                f"{TELEGRAM_TOKEN}/sendMessage",
-
-                json={
-                    "chat_id": chat_id,
-                    "text": text,
-                    "disable_web_page_preview": True
-                }
-            )
-
-        except:
-            pass
-
 
 def send_owner_message(text):
 
@@ -357,7 +335,7 @@ async def login():
 async def check_apartments():
 
     global page
-    global LAST_BUTTON_COUNT
+    global LAST_BUTTON_TEXTS
 
     await page.goto(
         "https://www.campusgroningen.com/"
@@ -431,7 +409,7 @@ async def check_apartments():
         len(apartments)
     )
 
-    total_buttons = 0
+    current_button_texts = set()
 
     # =========================
     # CHECK EVERY APARTMENT
@@ -478,37 +456,6 @@ async def check_apartments():
             text = ""
 
         # =========================
-        # COUNT BUTTONS
-        # =========================
-
-        button_selectors = [
-            "button",
-            "a.btn",
-            "a.button",
-            "[role='button']",
-            "input[type='submit']"
-        ]
-
-        button_count = 0
-
-        for selector in button_selectors:
-
-            try:
-
-                locator = page.locator(
-                    selector
-                )
-
-                count = await locator.count()
-
-                button_count += count
-
-            except:
-                pass
-
-        total_buttons += button_count
-
-        # =========================
         # DATE DETECTION
         # =========================
 
@@ -526,31 +473,86 @@ async def check_apartments():
                 f"📅 {matches[0]}"
             )
 
+        # =========================
+        # GET BUTTON TEXTS
+        # =========================
+
+        button_selectors = [
+            "button",
+            "a.btn",
+            "a.button",
+            "[role='button']",
+            "input[type='submit']",
+            "a"
+        ]
+
+        for selector in button_selectors:
+
+            try:
+
+                locator = page.locator(selector)
+
+                count = await locator.count()
+
+                for x in range(count):
+
+                    try:
+
+                        el = locator.nth(x)
+
+                        btn_text = (
+                            await el.inner_text()
+                        ).strip().lower()
+
+                        if btn_text:
+
+                            current_button_texts.add(
+                                btn_text
+                            )
+
+                    except:
+                        pass
+
+            except:
+                pass
+
+        # =========================
+        # DETECT STEL EEN VRAAG
+        # =========================
+
+        stel_exists_now = any(
+            "stel een vraag" in t
+            for t in current_button_texts
+        )
+
+        stel_existed_before = any(
+            "stel een vraag" in t
+            for t in LAST_BUTTON_TEXTS
+        )
+
+        # Кнопка исчезла
+        if (
+            stel_existed_before
+            and not stel_exists_now
+        ):
+
+            send_owner_message(
+                "🚨 STEL EEN VRAAG ZNIKNĄŁ!\n\n"
+                f"🏠 {apt['title']}\n\n"
+                f"🔗 {apt['url']}"
+            )
+
     # =========================
     # SAVE BUTTON COUNT
     # =========================
 
     BOT_STATE["buttons_count"] = (
-        total_buttons
+        len(current_button_texts)
     )
 
-    # =========================
-    # NEW BUTTON DETECTED
-    # =========================
-
-    if (
-        LAST_BUTTON_COUNT != 0
-        and total_buttons > LAST_BUTTON_COUNT
-    ):
-
-        send_owner_message(
-            "🚨 NOWY BUTTON!\n\n"
-            f"🔘 Buttons: "
-            f"{LAST_BUTTON_COUNT}"
-            f" -> {total_buttons}"
-        )
-
-    LAST_BUTTON_COUNT = total_buttons
+    LAST_BUTTON_TEXTS = (
+        current_button_texts.copy()
+    )
 
 
 # =========================
