@@ -351,7 +351,6 @@ async def login():
 
     return True
 
-
 # =========================
 # CHECK APARTMENTS
 # =========================
@@ -558,37 +557,16 @@ async def check_apartments():
         # минимум 2/3
         if len(checks) >= 2:
 
-            indicators = " ".join(checks)
-
-            detected_text = ""
-
-            if date_found:
-                detected_text += (
-                    "📅 Data detected\n"
-                )
-
-            if openhuis_found:
-                detected_text += (
-                    "✅ Open Huis text\n"
-                )
-
-            if button_found:
-                detected_text += (
-                    "🔘 Deelnemen button\n"
-                )
+            detected_text = " ".join(checks)
 
             send_telegram_alert(
                 "🚨 REJESTRACJA DOSTĘPNA!\n\n"
 
-                f"{indicators}\n\n"
+                f"{detected_text}\n\n"
 
                 f"🏠 {apt['title']}\n\n"
 
-                f"🔗 {apt['url']}\n\n"
-
-                "WYKRYTO:\n\n"
-
-                f"{detected_text}"
+                f"🔗 {apt['url']}"
             )
 
 # =========================
