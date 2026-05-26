@@ -111,9 +111,7 @@ def get_status_text():
         f"🔄 Cykle wyszukiwania: "
         f"{BOT_STATE['search_cycles']}\n"
         f"🏠 Mieszkań w ulubionych: "
-        f"{BOT_STATE['favorites_count']}\n"
-        f"🔘 Buttons: "
-        f"{BOT_STATE['buttons_count']}\n\n"
+        f"{BOT_STATE['favorites_count']}\n\n"
         f"{BOT_STATE['action']}"
     )
 
