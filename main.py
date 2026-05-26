@@ -16,7 +16,7 @@ EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
-CHECK_INTERVAL = 60
+CHECK_INTERVAL = 300
 
 # =========================
 # USERS
