@@ -332,14 +332,6 @@ async def login():
 # CHECK APARTMENTS
 # =========================
 
-# =========================
-# CHECK APARTMENTS
-# =========================
-
-# =========================
-# CHECK APARTMENTS
-# =========================
-
 async def check_apartments():
 
     global page
@@ -479,7 +471,7 @@ async def check_apartments():
 
         openhuis_text = (
             "op onderstaande dagen is er een "
-            "open huis"
+            "open huis. kom je langs?"
         )
 
         openhuis_found = (
@@ -539,7 +531,7 @@ async def check_apartments():
         if button_found:
             checks.append("🔘")
 
-        # REQUIRE AT LEAST 2/3
+        # минимум 2/3
         if len(checks) >= 2:
 
             indicators = " ".join(checks)
@@ -547,13 +539,19 @@ async def check_apartments():
             detected_text = ""
 
             if date_found:
-                detected_text += "📅 Data\n"
+                detected_text += (
+                    "📅 Data detected\n"
+                )
 
             if openhuis_found:
-                detected_text += "✅ Open Huis\n"
+                detected_text += (
+                    "✅ Open Huis text\n"
+                )
 
             if button_found:
-                detected_text += "🔘 Deelnemen Button\n"
+                detected_text += (
+                    "🔘 Deelnemen button\n"
+                )
 
             send_telegram_alert(
                 "🚨 REJESTRACJA DOSTĘPNA!\n\n"
