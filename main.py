@@ -336,6 +336,10 @@ async def login():
 # CHECK APARTMENTS
 # =========================
 
+# =========================
+# CHECK APARTMENTS
+# =========================
+
 async def check_apartments():
 
     global page
@@ -357,6 +361,8 @@ async def check_apartments():
     count = await cards.count()
 
     apartments = []
+
+    BOT_STATE["buttons_count"] = 0
 
     # =========================
     # GET APARTMENTS
@@ -538,6 +544,17 @@ async def check_apartments():
 
             indicators = " ".join(checks)
 
+            detected_text = ""
+
+            if date_found:
+                detected_text += "📅 Data\n"
+
+            if openhuis_found:
+                detected_text += "✅ Open Huis\n"
+
+            if button_found:
+                detected_text += "🔘 Deelnemen Button\n"
+
             send_telegram_alert(
                 "🚨 REJESTRACJA DOSTĘPNA!\n\n"
 
@@ -547,11 +564,9 @@ async def check_apartments():
 
                 f"🔗 {apt['url']}\n\n"
 
-                "WYKRYTO:\n"
+                "WYKRYTO:\n\n"
 
-                f"{'📅 Data\n' if date_found else ''}"
-                f"{'✅ Open Huis\n' if openhuis_found else ''}"
-                f"{'🔘 Deelnemen Button\n' if button_found else ''}"
+                f"{detected_text}"
             )
 
 # =========================
