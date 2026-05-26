@@ -332,10 +332,13 @@ async def login():
 # CHECK APARTMENTS
 # =========================
 
+# =========================
+# CHECK APARTMENTS
+# =========================
+
 async def check_apartments():
 
     global page
-    global LAST_BUTTON_TEXTS
 
     await page.goto(
         "https://www.campusgroningen.com/"
@@ -409,8 +412,6 @@ async def check_apartments():
         len(apartments)
     )
 
-    current_button_texts = set()
-
     # =========================
     # CHECK EVERY APARTMENT
     # =========================
@@ -440,7 +441,7 @@ async def check_apartments():
         await page.wait_for_timeout(5000)
 
         # =========================
-        # PAGE TEXT
+        # GET PAGE TEXT
         # =========================
 
         try:
@@ -456,104 +457,102 @@ async def check_apartments():
             text = ""
 
         # =========================
-        # DATE DETECTION
+        # PHASE 1 — DATE
         # =========================
 
-        matches = re.findall(
-            r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}u",
-            text
+        date_found = bool(
+            re.search(
+                r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}u",
+                text
+            )
         )
 
-        if matches:
+        # =========================
+        # PHASE 2 — OPEN HUIS TEXT
+        # =========================
 
-            send_owner_message(
-                "📅 DATA DETECTED\n\n"
+        openhuis_text = (
+            "op onderstaande dagen is er een "
+            "open huis"
+        )
+
+        openhuis_found = (
+            openhuis_text in text
+        )
+
+        # =========================
+        # PHASE 3 — BUTTON
+        # =========================
+
+        button_found = False
+
+        try:
+
+            deelnemen_button = page.locator(
+                'button:has-text("Deelnemen")'
+            )
+
+            if await deelnemen_button.count() > 0:
+
+                if await deelnemen_button.first.is_visible():
+
+                    button_found = True
+
+        except:
+            pass
+
+        # =========================
+        # BUTTON COUNT
+        # =========================
+
+        try:
+
+            all_buttons = page.locator(
+                "button"
+            )
+
+            BOT_STATE["buttons_count"] += (
+                await all_buttons.count()
+            )
+
+        except:
+            pass
+
+        # =========================
+        # FINAL DETECTION
+        # =========================
+
+        checks = []
+
+        if date_found:
+            checks.append("📅")
+
+        if openhuis_found:
+            checks.append("✅")
+
+        if button_found:
+            checks.append("🔘")
+
+        # REQUIRE AT LEAST 2/3
+        if len(checks) >= 2:
+
+            indicators = " ".join(checks)
+
+            send_telegram_alert(
+                "🚨 REJESTRACJA DOSTĘPNA!\n\n"
+
+                f"{indicators}\n\n"
+
                 f"🏠 {apt['title']}\n\n"
+
                 f"🔗 {apt['url']}\n\n"
-                f"📅 {matches[0]}"
+
+                "WYKRYTO:\n"
+
+                f"{'📅 Data\n' if date_found else ''}"
+                f"{'✅ Open Huis\n' if openhuis_found else ''}"
+                f"{'🔘 Deelnemen Button\n' if button_found else ''}"
             )
-
-        # =========================
-        # GET BUTTON TEXTS
-        # =========================
-
-        button_selectors = [
-            "button",
-            "a.btn",
-            "a.button",
-            "[role='button']",
-            "input[type='submit']",
-            "a"
-        ]
-
-        for selector in button_selectors:
-
-            try:
-
-                locator = page.locator(selector)
-
-                count = await locator.count()
-
-                for x in range(count):
-
-                    try:
-
-                        el = locator.nth(x)
-
-                        btn_text = (
-                            await el.inner_text()
-                        ).strip().lower()
-
-                        if btn_text:
-
-                            current_button_texts.add(
-                                btn_text
-                            )
-
-                    except:
-                        pass
-
-            except:
-                pass
-
-        # =========================
-        # DETECT STEL EEN VRAAG
-        # =========================
-
-        stel_exists_now = any(
-            "stel een vraag" in t
-            for t in current_button_texts
-        )
-
-        stel_existed_before = any(
-            "stel een vraag" in t
-            for t in LAST_BUTTON_TEXTS
-        )
-
-        # Кнопка исчезла
-        if (
-            stel_existed_before
-            and not stel_exists_now
-        ):
-
-            send_owner_message(
-                "🚨 STEL EEN VRAAG ZNIKNĄŁ!\n\n"
-                f"🏠 {apt['title']}\n\n"
-                f"🔗 {apt['url']}"
-            )
-
-    # =========================
-    # SAVE BUTTON COUNT
-    # =========================
-
-    BOT_STATE["buttons_count"] = (
-        len(current_button_texts)
-    )
-
-    LAST_BUTTON_TEXTS = (
-        current_button_texts.copy()
-    )
-
 
 # =========================
 # MAIN LOOP
