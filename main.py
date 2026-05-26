@@ -353,6 +353,10 @@ async def login():
 # CHECK APARTMENTS
 # =========================
 
+# =========================
+# CHECK APARTMENTS
+# =========================
+
 async def check_apartments():
 
     global page
@@ -479,11 +483,17 @@ async def check_apartments():
         # PHASE 1 — DATE
         # =========================
 
-        date_found = bool(
-            re.search(
-                r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}u",
-                text
-            )
+        date_match = re.search(
+            r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}u",
+            text
+        )
+
+        date_found = bool(date_match)
+
+        found_date = (
+            date_match.group(0)
+            if date_match
+            else "?"
         )
 
         # =========================
@@ -561,6 +571,8 @@ async def check_apartments():
                 "🚨 REJESTRACJA DOSTĘPNA!\n\n"
 
                 f"{detected_text}\n\n"
+
+                f"📅 {found_date}\n\n"
 
                 f"🏠 {apt['title']}\n\n"
 
