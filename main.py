@@ -29,6 +29,30 @@ OWNER_CHAT_ID = None
 STATUS_MESSAGES = {}
 
 # =========================
+# ALERTS
+# =========================
+
+def send_telegram_alert(text):
+
+    for chat_id in list(users):
+
+        try:
+
+            requests.post(
+                f"https://api.telegram.org/bot"
+                f"{TELEGRAM_TOKEN}/sendMessage",
+
+                json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "disable_web_page_preview": True
+                }
+            )
+
+        except:
+            pass
+
+# =========================
 # BOT STATE
 # =========================
 
