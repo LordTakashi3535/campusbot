@@ -460,7 +460,7 @@ async def check_apartments():
         # =========================
 
         matches = re.findall(
-            r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}h",
+            r"\d{2}-\d{2}-\d{4}\s\d{2}:\d{2}u",
             text
         )
 
